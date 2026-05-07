@@ -80,7 +80,7 @@ Core Lite
 含:
   ObjectRef + Lease
   DataOpen / DataCommit（走 Envelope 签名）
-  DataChunk（走 Merkle 分片流，不走 Protobuf bytes 主路径）
+  DataChunkMeta + raw chunk stream（走 Merkle 分片流，不走 Protobuf bytes 主路径）
   FlowCredit / DataPause / DataResume
   RemoteFileResolver（本地）
   Object GC
@@ -151,11 +151,13 @@ EXT → Core Secure (+ 视特性可选 Plugin Runtime / Data Plane)
 
 ## 4. Agent Card 声明
 
+Core Lite 是协议层唯一必选 Profile；Core Secure 是生产部署模板的必选项，但不能破坏 Core Lite 在开发、边缘和低功耗场景下独立协商运行。
+
 ```json
 {
   "advertisedProfiles": [
     { "id": "fap.core-lite", "version": "1.0.0", "required": true },
-    { "id": "fap.core-secure", "version": "1.0.0", "required": true },
+    { "id": "fap.core-secure", "version": "1.0.0", "required": false, "deploymentRequired": "production" },
     { "id": "fap.plugin-runtime", "version": "1.0.0", "required": false },
     { "id": "fap.data-plane", "version": "1.0.0", "required": false },
     { "id": "fap.hp-local", "version": "1.0.0", "required": false },
@@ -180,7 +182,8 @@ rejected_profiles: 明确声明哪些 Profile 无法启用
     VERSION_INCOMPATIBLE
     
 客户端收到 rejected_profiles 后应:
-  若 rejected 包含 Core Secure → 拒绝会话
+  若 rejected 包含 Core Lite → 拒绝会话
+  若当前 deployment policy 要求 Core Secure，而 Core Secure 被 rejected → 拒绝会话
   若 rejected 仅含可选 Profile → 降级运行
 ```
 

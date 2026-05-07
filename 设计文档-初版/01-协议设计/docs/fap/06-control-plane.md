@@ -30,7 +30,7 @@
 ```text
 Priority 0: Control (Hello/Auth/Capability/Cancel/Problem)
 Priority 1: Audit (Receipt)
-Priority 2: Data (DataOpen/DataChunk/DataCommit)
+Priority 2: Data (DataOpen/DataChunkMeta/DataCommit)
 ```
 
 控制面消息必须优先于数据面消息出队。

@@ -70,7 +70,7 @@ message DataAck { ... partial_merkle_root, next_offset }
   → RemoteFileResolver 判断本地不存在
   → 定位 origin_node_id
   → 向 node-a 发起 DataOpen
-  → 流式拉取 DataChunk
+  → 通过 raw stream 流式拉取分片（Envelope 仅承载 DataChunkMeta）
   → DataCommit 校验 hash
   → 生成 ObjectRef（含 lease_id）
   → 替换插件输入

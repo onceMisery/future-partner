@@ -32,7 +32,7 @@ GET  /fap/v1/invoke/:id/stream      SSE 接收 ProgressEvent
 
 POST /fap/v1/batch                  BatchInvokeRequest → BatchInvokeResult
 
-POST /fap/v1/data/upload            multipart，映射 DataOpen+DataChunk+DataCommit
+POST /fap/v1/data/upload            multipart，映射 DataOpen+raw chunks+DataCommit
 GET  /fap/v1/data/:object_id        流式下载
 POST /fap/v1/data/:object_id/lease/renew  ObjectLeaseRenew
 

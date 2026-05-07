@@ -1,6 +1,6 @@
 # 12 - 高性能 Profile (FAP-HP)
 
-FAP-HP 是一组高性能优化插件的集合，全部可选。
+FAP-HP Local 是一组单机高性能优化插件的集合，全部可选。分布式能力节点属于 HP Cluster，见 [profiles.md](./profiles.md) 与 [13-distributed-node.md](./13-distributed-node.md)。
 
 ## 1. 特性清单
 
@@ -10,8 +10,6 @@ context_folding
 dag_batch_invoke
 async_task
 warm_worker_pool
-distributed_capability_node
-remote_file_resolver
 semantic_capability_routing
 sqlite_wal_local_store
 usearch_mmap_vector_index

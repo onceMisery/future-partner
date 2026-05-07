@@ -2,6 +2,10 @@
 
 ## 1. 节点角色
 
+Phase 6 默认采用**单 Main Node** 拓扑。Main Node 是唯一协议入口、路由决策者和 Receipt chain 生成者；Worker/Storage/GPU/Memory 节点不参与主节点选举。
+
+多 Main、leader election、quorum、Raft/lease-based consensus 属于后续 Cluster Control Plane，不在 FAP-1 Phase 6 交付范围内。若部署方自行运行多 Main，必须通过外部一致性层提供 leader fencing，且不得产生多条并行 Receipt chain。
+
 | 角色 | 说明 |
 |---|---|
 | Main Node | 协议入口、能力路由、审计中心 |

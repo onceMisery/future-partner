@@ -75,7 +75,7 @@ plugin_api SemVer 检查
 
 ```text
 QUIC Control Stream
-DataOpen / DataChunk / DataCommit / DataAck
+DataOpen / DataChunkMeta / DataCommit / DataAck
 FlowCredit / DataPause / DataResume
 ObjectRef TTL + Lease + Renew
 Object GC
@@ -83,7 +83,7 @@ Transparency Log 对接
 Multisig 异步补签 + ReceiptFinalized
 ```
 
-## Phase 5：FAP-HP（3 周）
+## Phase 5：HP Local（3 周）
 
 ```text
 Dynamic Tool Projection
@@ -95,7 +95,7 @@ Semantic Capability Routing
 USearch mmap Index
 ```
 
-## Phase 6：Distributed Node（3 周）
+## Phase 6：HP Cluster / Distributed Node（3 周）
 
 ```text
 NodeHello

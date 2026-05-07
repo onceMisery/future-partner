@@ -204,10 +204,15 @@ DAG 调度:
   15min 恢复窗
   人工恢复
 
-网络分区:
-  脑裂场景无双主
+网络分区（单 Main 拓扑）:
+  Worker 分区后被剔除或进入 DEGRADED
+  Main Node 分区时拒绝新 high/critical 请求或进入 DRAINING
   Receipt chain 不断裂
   Object Replica 一致性
+
+多 Main 拓扑:
+  不属于 Phase 6 默认交付
+  若实现者启用，必须提供外部 leader fencing / quorum 证明
 
 分布式一致性:
   Register Capabilities 最终一致

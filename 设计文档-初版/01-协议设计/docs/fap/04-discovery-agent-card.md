@@ -32,7 +32,8 @@ GET /.well-known/agent-card.json
     "version": "1.0.0",
     "minCompatibleVersion": "1.0.0",
     "compatibilityPolicy": "semver",
-    "acceptPrereleases": "same-major"
+    "acceptPrereleases": "none",
+    "prereleaseAllowlist": []
   },
   "runtime": {
     "name": "fap-rust-runtime",
@@ -60,8 +61,12 @@ GET /.well-known/agent-card.json
     }
   ],
   "advertisedProfiles": [
-    { "id": "fap.core", "version": "1.0.0", "required": true },
-    { "id": "fap.hp", "version": "0.1.0", "required": false, "defaultEnabled": true },
+    { "id": "fap.core-lite", "version": "1.0.0", "required": true },
+    { "id": "fap.core-secure", "version": "1.0.0", "required": false, "deploymentRequired": "production" },
+    { "id": "fap.plugin-runtime", "version": "1.0.0", "required": false },
+    { "id": "fap.data-plane", "version": "1.0.0", "required": false },
+    { "id": "fap.hp-local", "version": "1.0.0", "required": false },
+    { "id": "fap.hp-cluster", "version": "1.0.0", "required": false, "defaultEnabled": false },
     { "id": "fap.ext", "version": "0.1.0", "required": false, "defaultEnabled": false }
   ],
   "security": [

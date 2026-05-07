@@ -2,15 +2,18 @@
 
 > 相关专题：[plugin-lifecycle.md](./plugin-lifecycle.md) 发布模型与版本并存；[kernel-contract.md](./kernel-contract.md) 插件边界。
 
-## 1. 插件类型（5 类）
+## 1. 插件类型
 
-| 类型 | 职责 |
+插件运行时按少数高层类别组织，但安全、存储、审计等能力继续暴露为更细的 Provider 子接口。细粒度边界以 [kernel-contract.md](./kernel-contract.md) 为准。
+
+| 高层类别 | 职责 | 常见子接口 |
 |---|---|
-| CapabilityPlugin | 业务能力（工具） |
-| TransportPlugin | QUIC/HTTP/WebTransport |
-| AuthPlugin | JWT/DID/企业 IAM |
-| ContextPlugin | 上下文构建（projection / folding / retrieval / storage） |
-| BridgePlugin | MCP/A2A/旧协议桥接 |
+| CapabilityPlugin | 业务能力（工具） | CapabilityPlugin |
+| TransportProvider | 传输适配 | TransportPlugin |
+| SecurityProvider | 认证、签名、密钥、撤销 | AuthPlugin / SignaturePlugin / KeyResolverPlugin / RevocationPlugin |
+| StateProvider | 持久化、对象、索引、审计外送 | StoragePlugin / ObjectStorePlugin / VectorIndexPlugin / AuditSinkPlugin |
+| ContextProvider | 上下文构建、路由建议、节点健康评分 | ContextPlugin / CapabilityRouterPlugin / NodeHealthPlugin |
+| BridgePlugin | MCP/A2A/旧协议桥接 | BridgePlugin |
 
 任何插件可声明 `experimental = true`。
 

@@ -170,7 +170,7 @@ backpressure:
 ```text
 接收端内存压力升高时发送 SLOW_DOWN
 接收端磁盘阻塞时发送 PAUSE
-控制面消息不被 DataChunk 阻塞
+控制面消息不被 raw data stream 阻塞
 CANCEL 能中断大文件流
 chunk size 能根据 FlowCredit 动态调整
 QUIC 模式下 FlowCredit 不与 QUIC 窗口冲突

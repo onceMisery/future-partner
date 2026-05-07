@@ -10,8 +10,11 @@ FAP-1（Future Agent Protocol 1）是面向 Agent-to-Agent / Agent-to-Tool / Age
 FAP Core:           稳定通信、安全、会话、能力、数据、审计
                     最小形态 Core Lite，可退化为 HTTP/JSON + Protobuf + SQLite
 
-FAP-HP Profile:     动态工具注入、上下文折叠、DAG 批量、分布式节点
-                    推荐启用，全部由 Plugin 提供
+FAP-HP Local:       动态工具注入、上下文折叠、DAG 批量、本地调度
+                    推荐按需启用，全部由 Plugin 提供
+
+FAP-HP Cluster:     分布式节点、跨节点对象副本、远程能力路由
+                    可选启用，依赖 HP Local + Data Plane
 
 FAP-EXT Profile:    DID/VC、潜空间、Gossip、CRDT、联邦学习
                     实验能力，默认关闭，编译期可剔除
