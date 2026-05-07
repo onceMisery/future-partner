@@ -46,7 +46,7 @@ message Envelope {
     reserved 62 to 69;
 
     DataOpen data_open = 70;
-    DataChunk data_chunk = 71;
+    DataChunkMeta data_chunk_meta = 71;  // 仅元数据，chunk bytes 走旁路
     DataCommit data_commit = 72;
     DataAck data_ack = 73;
     ObjectLeaseRenew object_lease_renew = 74;
@@ -147,7 +147,7 @@ message ClientHello {
   VersionRange supported_protocol_range = 4;
 
   repeated string supported_transports = 5;
-  repeated ProfileVersion supported_profiles = 6;
+  repeated ProfileVersionRange supported_profiles = 6;
   repeated AuthMode supported_auth_modes = 7;
 
   uint32 max_control_frame_bytes = 8;
@@ -155,6 +155,10 @@ message ClientHello {
   uint32 max_concurrent_streams = 10;
 
   bytes client_nonce = 11;
+
+  VersionRange supported_plugin_api_range = 12;
+  VersionRange supported_agent_card_schema_range = 13;
+  repeated string prerelease_allowlist = 14;
 }
 
 message ServerHello {
@@ -163,7 +167,7 @@ message ServerHello {
 
   string selected_protocol_version = 3;
   repeated ProfileVersion selected_profiles = 4;
-  repeated string rejected_profiles = 5;
+  repeated RejectedProfile rejected_profiles = 5;
 
   AuthMode selected_auth_mode = 6;
   string session_id = 7;
@@ -175,6 +179,9 @@ message ServerHello {
   repeated CompatibilityWarning compatibility_warnings = 11;
 
   bytes version_commitment = 12;
+
+  string selected_plugin_api_version = 13;
+  string selected_agent_card_schema_version = 14;
 }
 
 message VersionRange {
@@ -185,6 +192,25 @@ message VersionRange {
 message ProfileVersion {
   string id = 1;
   string version = 2;
+}
+
+message ProfileVersionRange {
+  string id = 1;
+  VersionRange range = 2;
+}
+
+message RejectedProfile {
+  string id = 1;
+  RejectReason reason = 2;
+  string detail = 3;
+}
+
+enum RejectReason {
+  REJECT_REASON_UNSPECIFIED = 0;
+  NOT_IMPLEMENTED = 1;
+  DISABLED_BY_CONFIG = 2;
+  DEPENDENCY_UNMET = 3;
+  VERSION_INCOMPATIBLE = 4;
 }
 
 message CompatibilityWarning {
@@ -254,8 +280,22 @@ message InvokeRequest {
   RiskLevel declared_risk_level = 7;
   string mandate_id = 8;
 
+  FinalityPolicy finality_policy = 20;
+  bool require_finalized = 21;
+  uint32 max_wait_ms = 22;
+
   repeated string depends_on = 30;
   map<string, string> options = 100;
+}
+
+enum FinalityPolicy {
+  FINALITY_POLICY_UNSPECIFIED = 0;
+  FINALITY_FAST = 1;                 // low
+  FINALITY_VERIFIED = 2;             // medium
+  FINALITY_AUDITED_ASYNC = 3;        // high 默认
+  FINALITY_AUDITED_SYNC = 4;         // high 严格
+  FINALITY_APPROVED_ASYNC = 5;       // critical 默认
+  FINALITY_APPROVED_SYNC = 6;        // critical 严格
 }
 
 message InvokeAck {
@@ -315,7 +355,67 @@ message BatchInvokeResult {
 
 ## 6. Data Plane
 
-见 07-data-plane.md。
+DataOpen/DataCommit/DataAck/DataChunkMeta 只承载元数据；chunk bytes 走旁路流（QUIC stream / HTTPS / S3 直传），完整性由 DataCommit.merkle_root 保证。详见 [data-plane-merkle.md](./data-plane-merkle.md)。
+
+```proto
+message DataOpen {
+  string stream_id = 1;
+  string object_id = 2;
+  string media_type = 3;
+  uint64 expected_size_bytes = 4;
+  bytes expected_merkle_root = 5;
+  uint32 chunk_size_bytes = 6;
+  MerkleAlgorithm merkle_algorithm = 7;
+  TransferEndpoint transfer = 10;
+}
+
+message DataChunkMeta {
+  string stream_id = 1;
+  uint64 chunk_index = 2;
+  uint64 offset = 3;
+  uint32 length = 4;
+  bytes chunk_hash = 5;
+  bool eof = 6;
+}
+
+message DataCommit {
+  string stream_id = 1;
+  string object_id = 2;
+  uint64 total_size_bytes = 3;
+  bytes merkle_root = 4;
+  uint64 chunk_count = 5;
+  MerkleAlgorithm merkle_algorithm = 6;
+}
+
+message DataAck {
+  string stream_id = 1;
+  string object_id = 2;
+  uint64 received_bytes = 3;
+  uint64 next_offset = 4;
+  bool complete = 5;
+  bytes partial_merkle_root = 6;
+}
+
+enum MerkleAlgorithm {
+  MERKLE_ALGORITHM_UNSPECIFIED = 0;
+  MERKLE_SHA256_BINARY = 1;
+  MERKLE_BLAKE3 = 2;
+}
+
+message TransferEndpoint {
+  TransferScheme scheme = 1;
+  string uri = 2;
+  map<string, string> credentials = 3;
+}
+
+enum TransferScheme {
+  TRANSFER_SCHEME_UNSPECIFIED = 0;
+  TRANSFER_QUIC_STREAM = 1;
+  TRANSFER_HTTPS_STREAM = 2;
+  TRANSFER_HTTPS_MULTIPART = 3;
+  TRANSFER_OBJECT_STORE = 4;
+}
+```
 
 ## 7. Capability / Receipt
 

@@ -1,5 +1,7 @@
 # semver-policy.md
 
+> 四条独立版本线的分线管理见 [version-lines.md](./version-lines.md)。
+
 FAP 协议 SemVer 策略。
 
 ## 1. SemVer 范围
@@ -58,23 +60,18 @@ ServerHello.selected_protocol_version ∈ [min, max]
 若无交集 → AuthReject(VERSION_INCOMPATIBLE)
 ```
 
-### 4.2 Prerelease 协商
+### 4.2 Prerelease Allowlist
 
-Agent Card：
+默认拒绝 prerelease。仅允许精确 allowlist。
 
 ```json
 "protocol": {
-  "acceptPrereleases": "same-major"
+  "acceptPrereleases": "allowlist",
+  "prereleaseAllowlist": ["1.1.0-rc.3", "2.0.0-beta.1"]
 }
 ```
 
-三档：
-
-| 值 | 行为 |
-|---|---|
-| none | 拒绝任何 prerelease |
-| same-major | 同 MAJOR 下接受，返回 compatibility_warnings |
-| any | 接受，warn |
+模糊匹配 `same-major` / `any` 已弃用（见 [version-lines.md](./version-lines.md) §4）。
 
 ### 4.3 Plugin API
 

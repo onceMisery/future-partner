@@ -1,6 +1,7 @@
 # 11 - Receipt 审计
 
-详见 [receipt-multisig.md](./receipt-multisig.md)。
+> 多签与 hash chain 详见 [receipt-multisig.md](./receipt-multisig.md)。
+> 按风险分级的执行路径与 finality 默认策略见 [risk-execution-paths.md](./risk-execution-paths.md)。
 
 ## 1. 目标
 

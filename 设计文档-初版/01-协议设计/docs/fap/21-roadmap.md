@@ -1,5 +1,11 @@
 # 21 - 路线图
 
+> Phase 门禁与依赖关系见 [phase-gates.md](./phase-gates.md)。
+> Profile 依赖关系见 [profiles.md](./profiles.md)。
+> 测试四门禁与三档性能目标见 [testing-matrix.md](./testing-matrix.md)。
+
+每个 Phase 对应一个 Profile，完成后必须通过门禁才能进入下一阶段。
+
 ## Phase 0：协议冻结（1 周）
 
 交付：

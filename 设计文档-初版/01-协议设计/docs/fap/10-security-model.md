@@ -1,6 +1,6 @@
 # 10 - 安全模型
 
-详见 [security.md](./security.md)。
+> 详见 [security.md](./security.md)；分级执行路径见 [risk-execution-paths.md](./risk-execution-paths.md)；边界约束见 [kernel-contract.md](./kernel-contract.md)。
 
 ## 1. 可插拔安全组件
 
@@ -11,10 +11,13 @@ KeyResolverPlugin:  本地 JWKS / 远程 JWKS / X.509 / DID Document / HSM
 RevocationPlugin:   OCSP / CRL / 自研撤销表 / Transparency Log
 ```
 
-## 2. 安全链路
+## 2. 安全链路（Kernel 固定顺序）
+
+判定顺序由 Core 固定，插件只在某一步被询问，不得跳过或重排。详见 [kernel-contract.md](./kernel-contract.md) §4。
 
 ```text
 Transport TLS
+  → Envelope Decode
   → Header Validation
   → Replay Cache
   → Session Check
@@ -22,9 +25,9 @@ Transport TLS
   → AuthZ (PolicyPlugin)
   → Mandate Check (含撤销查询)
   → Capability Policy
-  → Risk Policy
+  → Risk Policy            → 决定执行路径（FAST / VERIFIED / AUDITED_* / APPROVED_*）
   → Plugin Sandbox
-  → Receipt (SignaturePlugin)
+  → Receipt (SignaturePlugin + AuditSinkPlugin)
 ```
 
 ## 3. Mandate 委托链

@@ -1,5 +1,8 @@
 # 20 - 测试与一致性
 
+> 四类硬门禁与三档性能目标见 [testing-matrix.md](./testing-matrix.md)。
+> Phase 门禁索引见 [phase-gates.md](./phase-gates.md)。
+
 ## 1. 测试类型
 
 ```text

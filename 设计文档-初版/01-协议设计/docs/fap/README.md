@@ -1,12 +1,20 @@
 # FAP-1 规范文档索引
 
 > FAP-1（Future Agent Protocol 1）原生 Agent 通信协议规范
-> 版本：v1.0.0-rc.1
+> 版本：v1.0.0-rc.2
 > 日期：2026-05-07
 
 本目录为 FAP-1 协议的分章规范。与之对应的整合落地方案见 `../4.FAP-1最终实现方案.md`。
 
-## 章节规范（22 章）
+## 核心原则文档（必读）
+
+| 文档 | 主题 |
+|---|---|
+| [kernel-contract.md](./kernel-contract.md) | **Kernel Contract** — Core 必留组件与插件边界 |
+| [profiles.md](./profiles.md) | **Profile 重排** — Core Lite → ... → EXT |
+| [version-lines.md](./version-lines.md) | **四条版本线** — protocol / plugin_api / capability schema / agent card schema |
+
+## 章节规范（23 章）
 
 | 序号 | 文档 | 主题 |
 |---|---|---|
@@ -34,23 +42,61 @@
 | 21 | [21-roadmap.md](./21-roadmap.md) | 路线图 |
 | 22 | [22-rollback.md](./22-rollback.md) | 回滚策略 |
 
-## 专题规范（9 篇）
+## 专题规范
+
+### 安全与审计
 
 | 文档 | 主题 |
 |---|---|
-| [signing-canonical.md](./signing-canonical.md) | 签名字节规范化规则 + 测试向量 |
-| [problem-catalog.md](./problem-catalog.md) | 标准错误码目录 |
-| [semver-policy.md](./semver-policy.md) | SemVer 策略 |
-| [schema-evolution.md](./schema-evolution.md) | Proto Schema 演进规则 |
-| [http-json-binding.md](./http-json-binding.md) | HTTP/JSON Fallback Binding |
-| [mcp-bridge-semantics.md](./mcp-bridge-semantics.md) | MCP Bridge 语义映射 |
-| [data-backpressure.md](./data-backpressure.md) | 数据面背压机制 |
-| [receipt-multisig.md](./receipt-multisig.md) | Multisig Receipt |
+| [signing-canonical.md](./signing-canonical.md) | 签名字节规范化 + 测试向量 |
 | [security.md](./security.md) | 安全模型详解 |
+| [receipt-multisig.md](./receipt-multisig.md) | Multisig Receipt |
+| [risk-execution-paths.md](./risk-execution-paths.md) | 风险分级执行路径 |
 
-## 阅读顺序建议
+### 协议治理
 
-- 首次阅读：00 → 01 → 02 → 04 → 05 → 06 → 08 → 10 → 11
-- 实现者：03 (wire) + 专题 9 篇 + 18/19
-- 运维/安全：10/11/security.md/receipt-multisig.md
-- 协议贡献者：schema-evolution.md + semver-policy.md + 20/21/22
+| 文档 | 主题 |
+|---|---|
+| [kernel-contract.md](./kernel-contract.md) | Kernel Contract 边界 |
+| [profiles.md](./profiles.md) | Profile 重排 |
+| [version-lines.md](./version-lines.md) | 四条版本线 |
+| [semver-policy.md](./semver-policy.md) | SemVer 策略（按版本线细分） |
+| [schema-evolution.md](./schema-evolution.md) | Schema 演进规则 |
+| [problem-catalog.md](./problem-catalog.md) | 错误码目录 |
+
+### 运行时
+
+| 文档 | 主题 |
+|---|---|
+| [plugin-lifecycle.md](./plugin-lifecycle.md) | 插件发布模型与版本并存 |
+| [data-plane-merkle.md](./data-plane-merkle.md) | Data Plane Merkle 化 |
+| [data-backpressure.md](./data-backpressure.md) | 背压 |
+
+### 互操作
+
+| 文档 | 主题 |
+|---|---|
+| [http-json-binding.md](./http-json-binding.md) | HTTP/JSON Fallback |
+| [mcp-bridge-semantics.md](./mcp-bridge-semantics.md) | MCP Bridge 语义 |
+
+### 工程门禁
+
+| 文档 | 主题 |
+|---|---|
+| [phase-gates.md](./phase-gates.md) | 路线图 Phase 门禁 |
+| [testing-matrix.md](./testing-matrix.md) | 测试四门禁 + 三档性能目标 |
+
+## 阅读顺序
+
+- 首次阅读：00 → 01 → 02 → **kernel-contract.md** → **profiles.md** → 04 → 05 → 10 → 11
+- 实现者：03 + signing-canonical + plugin-lifecycle + data-plane-merkle + 18/19
+- 运维/安全：security + receipt-multisig + risk-execution-paths + phase-gates
+- 协议贡献者：version-lines + schema-evolution + phase-gates + testing-matrix
+
+## 版本
+
+```text
+规范: v1.0.0-rc.2
+日期: 2026-05-07
+状态: 待协议冻结（Phase 0 门禁 G0 尚未通过）
+```

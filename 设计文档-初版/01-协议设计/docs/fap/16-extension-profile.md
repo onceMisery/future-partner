@@ -1,5 +1,7 @@
 # 16 - 扩展 Profile (FAP-EXT)
 
+> Profile 全序列见 [profiles.md](./profiles.md)。EXT 门禁见 [phase-gates.md](./phase-gates.md) §9。
+
 全部默认关闭，Core Lite 构建中可编译剔除。
 
 ## 1. DID/VC

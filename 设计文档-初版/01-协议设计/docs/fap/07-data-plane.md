@@ -1,5 +1,7 @@
 # 07 - 数据面
 
+> 大文件分片走 Merkle 化旁路流，Envelope 只签 DataOpen/DataCommit/ObjectRef。详见 [data-plane-merkle.md](./data-plane-merkle.md)。
+
 数据面用于高效传输大对象：文件、图片、音频、视频、日志、模型输出片段、embedding、压缩包、远程节点对象。
 
 ## 1. ObjectRef
@@ -45,12 +47,17 @@ message ObjectLeaseRenew {
 
 ## 4. 数据流
 
+Envelope 消息（参与签名）：`DataOpen / DataCommit / DataAck / DataChunkMeta`。
+raw chunk bytes 不在 Envelope 里传输，走旁路流（QUIC stream / HTTPS / S3 直传），完整性由 DataCommit.merkle_root 保证。
+
 ```proto
-message DataOpen { ... }
-message DataChunk { ... }
-message DataCommit { ... }
-message DataAck { ... }
+message DataOpen { ... expected_merkle_root, chunk_size_bytes, transfer: TransferEndpoint }
+message DataCommit { ... merkle_root, chunk_count, merkle_algorithm }
+message DataChunkMeta { ... chunk_hash, offset, eof }
+message DataAck { ... partial_merkle_root, next_offset }
 ```
+
+完整消息定义见 [data-plane-merkle.md](./data-plane-merkle.md) §3。
 
 ## 5. 背压
 

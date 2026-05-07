@@ -1,5 +1,7 @@
 # 09 - 插件运行时
 
+> 相关专题：[plugin-lifecycle.md](./plugin-lifecycle.md) 发布模型与版本并存；[kernel-contract.md](./kernel-contract.md) 插件边界。
+
 ## 1. 插件类型（5 类）
 
 | 类型 | 职责 |
@@ -14,11 +16,16 @@
 
 ## 2. 生命周期
 
+发布状态机：
+
 ```text
-Discover → Validate Manifest → Verify Signature → Check Permission
-→ Init → Register → Start → Health Check
-→ Invoke → Drain → Stop → Unload
+UPLOADED → VALIDATED → STAGED → DRY_RUN_PASSED → ACTIVE
+  → DRAINING → STOPPED → UNLOADED
 ```
+
+细节见 [plugin-lifecycle.md](./plugin-lifecycle.md)。
+
+升级期间 `capability_id + schema_version` 可并存，路由按版本约束选择。
 
 ## 3. Manifest
 
@@ -72,18 +79,20 @@ message = "code.review unavailable"
 
 禁止 V1 使用任意 `.so/.dll` 动态注入。
 
-## 5. 插件不可绕过 Core
+## 5. 插件不可绕过 Core（Kernel Contract）
+
+完整清单见 [kernel-contract.md](./kernel-contract.md)。核心禁止项：
 
 ```text
-插件不能绕过认证
-插件不能绕过授权
-插件不能绕过 Mandate
-插件不能直接写 Receipt
+插件不能绕过认证 / 授权 / Mandate
+插件不能直接写 Receipt / hash_chain_tip
 插件不能返回未审计结果
-插件不能修改 risk_level
-插件不能修改 idempotency_key
+插件不能修改 risk_level / idempotency_key
 插件不能伪造 signature
 插件不能访问其他 session 状态
+插件不能写 Replay Cache
+插件不能重排 Policy 判定顺序
+插件不能代 Client 签 FAP signature
 ```
 
 ## 6. Plugin Trait
