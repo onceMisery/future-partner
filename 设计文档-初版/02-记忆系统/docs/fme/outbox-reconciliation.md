@@ -47,7 +47,7 @@ SQL 事务边界：
 │    2. memory_unit_security 删除                                   │
 │    3. memory_lineage 删除                                         │
 │    4. context_grant 标记 revoked                                  │
-│    5. forget_ledger insert（pending mutations 列表）              │
+│    5. mutation_ledger insert（pending mutations 列表）            │
 │    6. audit_event insert（status=COMMITTED_LOCALLY）              │
 │  COMMIT                                                           │
 │                                                                   │
@@ -59,15 +59,15 @@ SQL 事务边界：
 │  阶段二：跨系统异步达成（saga）                                    │
 │                                                                   │
 │  Reconciler（Cerebellum 后台任务）：                              │
-│    for mutation in forget_ledger where status = PENDING:          │
+│    for mutation in mutation_ledger where status = PENDING:        │
 │      try:                                                         │
 │        execute(mutation)        # vector_index.mark_deleted /     │
 │                                 # s3.delete / kafka.send / ...    │
-│        forget_ledger.set status = SUCCESS                         │
+│        mutation_ledger.set status = SUCCESS                       │
 │      except:                                                      │
-│        forget_ledger.attempts += 1                                │
+│        mutation_ledger.attempts += 1                              │
 │        if attempts > MAX_RETRIES:                                 │
-│          forget_ledger.set status = NEEDS_INTERVENTION            │
+│          mutation_ledger.set status = NEEDS_INTERVENTION          │
 │          告警                                                     │
 │                                                                   │
 │  完成所有 mutation 后：                                           │
@@ -77,10 +77,10 @@ SQL 事务边界：
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-## 4. forget_ledger 表
+## 4. mutation_ledger 表
 
 ```sql
-CREATE TABLE forget_ledger (
+CREATE TABLE mutation_ledger (
   ledger_id TEXT PRIMARY KEY,
   request_id TEXT NOT NULL,                  -- ForgetRequest 幂等键
   receipt_id TEXT NOT NULL,                  -- ForgetReceipt
@@ -96,8 +96,8 @@ CREATE TABLE forget_ledger (
   next_retry_at INTEGER,
   signature TEXT NOT NULL                    -- mutation 描述的本地签名（防 tampering）
 );
-CREATE INDEX idx_forget_ledger_status ON forget_ledger(status, next_retry_at);
-CREATE INDEX idx_forget_ledger_receipt ON forget_ledger(receipt_id);
+CREATE INDEX idx_mutation_ledger_status ON mutation_ledger(status, next_retry_at);
+CREATE INDEX idx_mutation_ledger_receipt ON mutation_ledger(receipt_id);
 ```
 
 ## 5. ForgetReceipt 双状态 schema
@@ -190,7 +190,7 @@ kafka_emit          带 idempotency_key 的 ProducerRecord
 context_grant_revoke 多次撤销同一 grant 等价
 ```
 
-`forget_ledger.payload_json` 中包含 `idempotency_key`，确保重试不会产生副作用。
+`mutation_ledger.payload_json` 中包含 `idempotency_key`，确保重试不会产生副作用。
 
 ## 8. 重试策略
 
@@ -214,14 +214,14 @@ context_grant_revoke 多次撤销同一 grant 等价
 ### 9.1 阶段一失败
 
 ```text
-SQL 事务回滚 → 不写 forget_ledger → 不返回 ForgetReceipt
+SQL 事务回滚 → 不写 mutation_ledger → 不返回 ForgetReceipt
 返回错误码 fap-me/forget-failed
 ```
 
 ### 9.2 阶段二部分失败
 
 ```text
-forget_ledger 中部分 mutation 状态 = SUCCESS，部分 = FAILED
+mutation_ledger 中部分 mutation 状态 = SUCCESS，部分 = FAILED
 ForgetReceipt 维持 COMMITTED_LOCALLY
 继续重试失败项
 请求方查询时看到 pending_external_systems[]
@@ -236,7 +236,7 @@ ForgetReceipt 转 RECONCILE_FAILED
 合规人员介入：
   - 手动执行该 mutation
   - 或确认外部系统已无目标数据（提供证据 token）
-  - 完成后管理员标记 forget_ledger.status = SUCCESS
+  - 完成后管理员标记 mutation_ledger.status = SUCCESS
 ```
 
 ## 10. 与 FAP-1 finality 的对应
@@ -255,7 +255,7 @@ FAP-1 InvokeRequest 在 FINALIZED 模式下：
 
 ```rust
 pub struct ForgetReconciler {
-    ledger: Arc<dyn ForgetLedgerStore>,
+    ledger: Arc<dyn MutationLedgerStore>,
     executors: HashMap<MutationKind, Box<dyn MutationExecutor>>,
     audit_kernel: Arc<AuditKernel>,
 }
@@ -314,9 +314,9 @@ impl ForgetReconciler {
 ## 12. 监控指标
 
 ```text
-forget_ledger_pending_total{system}            待处理项数
-forget_ledger_in_flight_total
-forget_ledger_intervention_total{system}       人工介入项数（红色告警）
+mutation_ledger_pending_total{system}          待处理项数
+mutation_ledger_in_flight_total
+mutation_ledger_intervention_total{system}     人工介入项数（红色告警）
 forget_reconcile_duration_seconds{system}      达成最终一致的耗时
 forget_receipt_finalized_total                 签发 reconciled receipt 数
 forget_max_pending_age_seconds                 最老 pending 项的年龄
@@ -336,12 +336,12 @@ DreamProposal.apply 涉及外部 vector index 重建
 admin.rebuild 涉及外部 Qdrant collection 替换
 context_grant 跨租户撤销通知接收方
 
-均通过 forget_ledger 通用化为 mutation_ledger，
+均通过 mutation_ledger 统一管理，
 但 schema 中的 mutation_kind 命名空间区分
 （forget.* / dream.* / admin.*）
 ```
 
-可选演进：将表重命名为 `mutation_ledger`，统一管理所有需要最终一致的 mutation。
+`mutation_ledger` 统一管理所有需要最终一致的 mutation。
 
 ## 14. 合规含义
 
@@ -370,5 +370,5 @@ ForgetReceipt 暗示"已完成"              双状态：COMMITTED_LOCALLY / GLO
 单事务覆盖所有外部系统（不可能）        本地事务 + 外部 saga + reconciler
 失败时无补偿语义                         NEEDS_INTERVENTION + 人工介入流程
 不允许请求方等待最终一致                wait_for_reconciled 选项
-不允许跨系统幂等保证                    forget_ledger 幂等性 + 重试 + 证据 token
+不允许跨系统幂等保证                    mutation_ledger 幂等性 + 重试 + 证据 token
 ```

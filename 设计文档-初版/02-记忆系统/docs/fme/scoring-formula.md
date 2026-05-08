@@ -108,22 +108,42 @@ recency_score = exp(-age_days / half_life_days)
 | tagmemo | 0.40 | 0.10 | 0.20 | 0.15 | 0.10 | 0.05 | 0.15 | 1.00 | - |
 | tagmemo_geodesic | 0.30 | 0.10 | 0.20 | 0.15 | 0.10 | 0.05 | 0.15 | 1.00 | 0.30 |
 | dream | 0.25 | 0.05 | 0.30 | 0.20 | 0.05 | 0.15 | 0.20 | 1.00 | - |
-| sbu_safe | 0.50 | 0.20 | 0.05 | 0.10 | 0.10 | 0.05 | 0.10 | 0.00 | - |
+| sbu_safe | 0.50 | 0.20 | 0.05 | 0.10 | 0.10 | 0.05 | 0.10 | 1.00 | - |
 
 注：
 - `w_sbu = 1.0` 表示 SBU 在该模式下硬过滤（不仅是降权）。
-- `sbu_safe` 模式 `w_sbu = 0` 是因为该模式预期接收脱敏后内容，不再做硬过滤。
+- `sbu_safe` 模式仍保留 `w_sbu = 1.0` 作为最后一道硬过滤。即使上游预期已脱敏，检索流水线也不能依赖该前提。
 - 权重可按租户在 PluginConfig 覆盖。
 
 ## 4. 归一化
 
-候选打分前，每个子分数必须先在候选池内做 min-max 归一化：
+候选打分前，每个子分数必须经过版本化校准归一化，而不是按单次候选池做 min-max：
 
 ```text
-score_norm[i] = (score[i] - min(scores)) / (max(scores) - min(scores) + ε)
+score_norm = clamp01(calibrator_v(raw_score))
 ```
 
-避免某一项绝对值过大主导排序。
+校准器来源：
+
+| 子项 | 校准方式 |
+|---|---|
+| vector_score | cosine 已在 [0,1]，按 embedding_model + index_version 做温度校准 |
+| bm25_score | sigmoid(raw_bm25 / bm25_scale)，`bm25_scale` 固定进 scoring_version |
+| lif_spike_score | 除以理论上限或离线 P95，按 tag_graph_version 固定 |
+| tag_topology_score | 距离转相似度后按图版本校准 |
+| recency_score | 指数衰减天然稳定 |
+| source_confidence | 来源 trust 分数，禁止候选池内归一化 |
+
+禁止把生产 final_score 建立在单次候选池 `min(scores)/max(scores)` 上。原因：
+
+```text
+1. 不同请求之间不可比
+2. 离群值会改变所有候选得分
+3. 审计回放难以稳定复现
+4. 部分结果或 fallback 会改变 min/max，导致排序漂移
+```
+
+允许在同一候选池内使用 robust rank feature 作为额外 tie-breaker，但必须写入 `scoring_version`，且不能替代上述稳定校准器。
 
 ## 5. 可解释性输出
 

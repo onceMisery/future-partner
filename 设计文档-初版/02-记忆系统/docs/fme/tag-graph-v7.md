@@ -169,7 +169,7 @@ fn ordinal_expand(
 热图（hot）：
   Top-N 高权重边常驻内存（默认 Top-50000）
   支持快速 O(1) 邻居查找
-  数据结构：HashMap<TagId, HashMap<TagId, f32>>
+  数据结构：HashMap<TenantNamespace, HashMap<TagId, HashMap<TagId, f32>>>
 
 冷图（cold）：
   低频边持久化在 SQLite tag_edge 表
@@ -186,9 +186,10 @@ mmap 快照：
 
 ```text
 服务启动：
-  1. SELECT * FROM tag_edge ORDER BY weight DESC LIMIT 50000
-  2. 加载到 hot HashMap
-  3. 生成 CSR mmap 快照
+  1. 按 tenant/namespace 遍历 tag_edge
+  2. SELECT * FROM tag_edge WHERE tenant_id=? AND namespace=? ORDER BY weight DESC LIMIT hot_top_n
+  3. 加载到对应 hot HashMap
+  4. 为每个 tenant/namespace 生成独立 CSR mmap 快照
 
 后台维护：
   1. 每天凌晨：
@@ -204,10 +205,10 @@ mmap 快照：
 
 ```rust
 pub struct ColdHotTagGraph {
-    hot: Arc<RwLock<HashMap<TagId, HashMap<TagId, EdgeWeight>>>>,
+    hot: Arc<RwLock<HashMap<TenantNamespace, HashMap<TagId, HashMap<TagId, EdgeWeight>>>>>,
     cold_store: Arc<dyn TagEdgeStore>,
-    ordinal_adjacency: Arc<RwLock<DirectedOrdinalGraph>>,
-    csr_snapshot: Arc<RwLock<CsrSnapshot>>,
+    ordinal_adjacency: Arc<RwLock<HashMap<TenantNamespace, DirectedOrdinalGraph>>>,
+    csr_snapshot: Arc<RwLock<HashMap<TenantNamespace, CsrSnapshot>>>,
     config: ColdHotConfig,
 }
 
@@ -227,15 +228,16 @@ pub struct EdgeWeight {
 }
 
 impl TagGraph for ColdHotTagGraph {
-    fn upsert(&self, memory_id: MemoryId, tags: &[Tag]) -> Result<()> { ... }
+    fn upsert(&self, tenant: &TenantNamespace, memory_id: MemoryId, tags: &[Tag]) -> Result<()> { ... }
 
-    fn expand(&self, seeds: &[Tag], params: &LifParams) -> Result<SpikeTrace> {
+    fn expand(&self, tenant: &TenantNamespace, seeds: &[Tag], params: &LifParams) -> Result<SpikeTrace> {
         // 调用 lif_expand，使用 csr_snapshot
         ...
     }
 
     fn ordinal_expand(
         &self,
+        tenant: &TenantNamespace,
         seeds: &[TagWithPotential],
         params: &OrdinalLifParams,
     ) -> Result<SpikeTrace> {
@@ -243,11 +245,13 @@ impl TagGraph for ColdHotTagGraph {
         ...
     }
 
-    fn load_hot_edges(&self, top_n: usize) -> Result<HotGraph> { ... }
-    fn flush_cold_edges(&self, hot_graph: &HotGraph) -> Result<()> { ... }
-    fn prune(&self, min_weight: f32, max_age_days: u32) -> Result<PruneReport> { ... }
+    fn load_hot_edges(&self, tenant: &TenantNamespace, top_n: usize) -> Result<HotGraph> { ... }
+    fn flush_cold_edges(&self, tenant: &TenantNamespace, hot_graph: &HotGraph) -> Result<()> { ... }
+    fn prune(&self, tenant: &TenantNamespace, min_weight: f32, max_age_days: u32) -> Result<PruneReport> { ... }
 }
 ```
+
+TagGraph 统计量（`doc_count`、`cooccur_count`、`weight`、centroid、CSR snapshot）必须按 tenant/namespace 隔离。服务端多租户模式下禁止把不同租户的 Tag 共现统计合并，否则会形成语义侧信道和召回污染。
 
 ## 7. 默认参数
 

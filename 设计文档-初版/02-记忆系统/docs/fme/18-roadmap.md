@@ -5,17 +5,42 @@
 ## 1. 总览
 
 ```text
-Phase 1   Kernel Contract + 协议骨架        2 周
+Phase 1   Kernel Contract + FAP-1 绑定门禁   3 周
 Phase 2   L0/L1 基础记忆闭环                 3 周
 Phase 3   Seahorse-style 认知检索增强        5 周
 Phase 4   上下文共享与 Handoff               3 周
 Phase 5   安全合规增强                       4 周
 Phase 6   DreamWorker + 后台维护 + 生产化    5 周
                                               ─────
-                                              22 周
+                                              23 周
 ```
 
-## 2. Phase 1：Kernel Contract + 协议骨架（2 周）
+## 2. Phase 1：Kernel Contract + FAP-1 绑定门禁（3 周）
+
+Phase 1 拆为四道顺序门禁。未通过前一道，不进入下一道：
+
+```text
+Gate 1  FAP-1 Binding Freeze
+        - 所有外部调用走 FAP-1 InvokeRequest
+        - 不暴露独立 MemoryControlService
+        - FAP-1 Mandate + FME constraints schema 冻结
+        - capability/layer/action 三元组冻结
+
+Gate 2  Kernel Security Baseline
+        - PolicyKernel / TenantKernel / MandateVerifier / ContentSafetyGuard 不可插件化
+        - capability-scoped plugin handle 生效
+        - tenant_id 不信任请求体
+
+Gate 3  Audit & Receipt Binding
+        - AuditEvent 包含 fap_receipt_id / fap_invocation_id / fap_envelope_hash
+        - chain_state 按 tenant/namespace 分片
+        - 高风险 finality 策略落地
+
+Gate 4  Data Plane & Outbox Baseline
+        - 大对象与流式 chunk 复用 FAP-1 Data Plane
+        - ForgetReceipt 双状态 schema 落地
+        - mutation_ledger / outbox reconciler 最小闭环
+```
 
 ### 交付物
 
@@ -32,16 +57,18 @@ Phase 6   DreamWorker + 后台维护 + 生产化    5 周
   - 多租户级配置覆盖
   - WASM 沙箱（Wasmtime）
 
-✅ FAP-ME Protobuf 扩展
+✅ FAP-ME Payload Schema 扩展
   - StandardPurpose 枚举
+  - CapabilityTriple
   - RedactionPolicy / RedactionReport
   - DreamProposal 状态机
   - HandoffPacket（含 RedactionReport）
+  - ForgetReceipt 双状态
 
 ✅ Purpose 词汇表 JSON Schema
 ✅ Agent Card memory 子节定义
 ✅ fap-me-server 骨架（axum + tonic）
-✅ TypeScript / Python SDK 骨架
+✅ TypeScript / Python SDK 类型骨架（只封装 FAP-1 Invoke）
 ```
 
 ### 验收标准
@@ -50,8 +77,9 @@ Phase 6   DreamWorker + 后台维护 + 生产化    5 周
 1. 任何绕过 PolicyKernel 直接访问存储的路径均无法编译
 2. 插件注册版本冲突时系统拒绝启动
 3. ContentSafetyGuard 能拦截 ≥ 10 个标准 Prompt Injection 模式
-4. Protobuf 可生成 Go / Rust / TypeScript SDK
-5. Conformance 负例 ≥ 30 个全部通过
+4. Protobuf 可生成 Go / Rust / TypeScript SDK 类型
+5. FAP-1 Receipt 与 FME AuditEvent 可端到端互相定位
+6. Conformance 负例 ≥ 30 个全部通过
 ```
 
 ## 3. Phase 2：L0/L1 基础记忆闭环（3 周）
@@ -88,9 +116,9 @@ Phase 6   DreamWorker + 后台维护 + 生产化    5 周
    - semantic_boundary_score > 0.70
    - 静默 > 300s
 2. L1 Episode 可按 tenant / namespace 检索
-3. 每次 retrieve / store 生成带哈希链的 AuditEvent
+3. 每次 retrieve / store 生成带哈希链且绑定 FAP-1 Receipt 的 AuditEvent
 4. 不同 tenant 的记忆无法交叉查询
-5. Prompt Injection 内容被拦截，不进入 L0
+5. Prompt Injection 内容被拒绝或隔离，不进入默认可召回 L0
 6. 性能：basic P99 ≤ 20ms / hybrid P99 ≤ 60ms
 ```
 
@@ -159,7 +187,7 @@ Phase 6   DreamWorker + 后台维护 + 生产化    5 周
 ```text
 1. Agent A 可安全移交任务给 Agent B
 2. B 收到 HandoffPacket 后可验证脱敏报告签名
-3. SBU 内容不出现在任何跨 Agent 上下文中
+3. 未授权 SBU 原文不出现在任何跨 Agent 上下文中
 4. ContextGrant 过期后不可再访问
 5. ContextGrant 撤销后 ≤ 60s 全集群生效
 6. redaction_policy 格式符合 fap-redaction-v1 schema
@@ -174,10 +202,11 @@ Phase 6   DreamWorker + 后台维护 + 生产化    5 周
 ✅ DID Resolver
 ✅ VC Verifier
 ✅ DPoP adapter
-✅ Intent Mandate verifier（含 purpose 词汇表校验）
+✅ FAP-1 Mandate verifier（含 FME constraints 与 purpose 词汇表校验）
 ✅ SBU 强制遗忘流水线
-  - 级联清除：raw → embedding → snapshot → grant
-✅ ForgetReceipt 生成（含签名）
+  - 本地强一致：raw → embedding → snapshot → grant → 本地 CAS
+  - 跨系统最终一致：S3 / Kafka / Qdrant / 远端 sink outbox
+✅ ForgetReceipt 生成（含 local/global 双状态签名）
 ✅ AuditKernel 完整性验证
   - 周期哈希链验证（每天）
   - 断链检测
@@ -189,8 +218,8 @@ Phase 6   DreamWorker + 后台维护 + 生产化    5 周
 
 ```text
 1. 未授权 purpose 无法读取记忆
-2. HardForget 后 raw / embedding / snapshot / grant 全部级联清除
-3. 返回可验证 ForgetReceipt（含签名）
+2. HardForget 后本地 raw / embedding / snapshot / grant / 本地 CAS 在单事务内级联清除
+3. 返回可验证 ForgetReceipt；默认状态可为 COMMITTED_LOCALLY，外部系统通过 reconciler 达成 GLOBALLY_RECONCILED
 4. 审计链完整性每天自动验证，断链时告警
 5. 跨组织 Agent 可用 DID/VC 建立会话
 6. mandate 撤销 ≤ 60s 全集群可见
@@ -243,9 +272,8 @@ Phase 6   DreamWorker + 后台维护 + 生产化    5 周
 Phase 1 是所有后续阶段的前提（必须先完成）
 Phase 2 依赖 Phase 1
 Phase 3 依赖 Phase 2 的 L1 + EmbeddingProvider + VectorIndex
-Phase 4 依赖 Phase 3（ContextSnapshot 与检索流水线集成）
-       并行：Phase 4 可与 Phase 5 部分并行
-Phase 5 依赖 Phase 4 的 ContextGrant 与 RedactionReport
+Phase 4 依赖 Phase 1 Gate 3/4 与 Phase 2 的 ContextSnapshot；不依赖 Phase 3 全部高级检索
+Phase 5 的 Mandate/Redaction/Forget 基线已在 Phase 1 Gate 中落地；Phase 5 负责生产级强化
 Phase 6 依赖前 5 个 Phase
 ```
 
@@ -291,10 +319,10 @@ DreamWorker 升级失败：
 ## 12. 关键里程碑
 
 ```text
-W2    Kernel Contract 完工，conformance 负例通过
-W5    L0/L1 闭环，basic + hybrid 上线
-W10   认知检索全模式上线，TagMemo V7 + 测地线重排可用
-W13   Handoff + RedactionReport 完整链路通过
-W17   合规 + DID/VC + SBU 强制遗忘通过
-W22   DreamWorker + 完整生产化，进入 GA
+W3    FAP-1 绑定、Kernel Contract、审计绑定、outbox 基线通过
+W6    L0/L1 闭环，basic + hybrid 上线
+W11   认知检索全模式上线，TagMemo V7 + 测地线重排可用
+W14   Handoff + RedactionReport 完整链路通过
+W18   合规 + DID/VC + SBU 强制遗忘通过
+W23   DreamWorker + 完整生产化，进入 GA
 ```

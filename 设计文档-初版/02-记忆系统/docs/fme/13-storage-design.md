@@ -41,7 +41,7 @@ CREATE TABLE memory_unit (
   memory_id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL,
   namespace TEXT NOT NULL,
-  layer TEXT NOT NULL,                   -- L0 | L1 | L2
+  layer TEXT NOT NULL,                   -- L0 | L1 | L2 | L3
   visibility TEXT NOT NULL,
   owner_subject_did TEXT,
   owner_agent_did TEXT,
@@ -60,6 +60,7 @@ CREATE TABLE memory_unit (
 );
 CREATE INDEX idx_memory_tenant_layer ON memory_unit(tenant_id, layer);
 CREATE INDEX idx_memory_namespace ON memory_unit(tenant_id, namespace);
+CREATE INDEX idx_memory_deleted ON memory_unit(tenant_id, namespace, deleted_at);
 
 CREATE TABLE memory_unit_security (
   memory_id TEXT NOT NULL,
@@ -73,24 +74,34 @@ CREATE TABLE memory_lineage (
   parent_id TEXT NOT NULL,
   PRIMARY KEY (child_id, parent_id)
 );
+CREATE INDEX idx_lineage_parent ON memory_lineage(parent_id);
 
 CREATE TABLE tag (
-  tag_id TEXT PRIMARY KEY,
-  tag_name TEXT NOT NULL UNIQUE,
+  tenant_id TEXT NOT NULL,
+  namespace TEXT NOT NULL,
+  tag_id TEXT NOT NULL,
+  tag_name TEXT NOT NULL,
   tag_type TEXT NOT NULL,
   doc_count INTEGER NOT NULL DEFAULT 0,
   avg_cooccur REAL,
   recency REAL,
-  intrinsic_residual REAL                -- V7 内生残差
+  intrinsic_residual REAL,               -- V7 内生残差
+  PRIMARY KEY (tenant_id, namespace, tag_id),
+  UNIQUE (tenant_id, namespace, tag_name)
 );
 
 CREATE TABLE memory_tag (
+  tenant_id TEXT NOT NULL,
+  namespace TEXT NOT NULL,
   memory_id TEXT NOT NULL,
   tag_id TEXT NOT NULL,
-  PRIMARY KEY (memory_id, tag_id)
+  PRIMARY KEY (tenant_id, namespace, memory_id, tag_id)
 );
+CREATE INDEX idx_memory_tag_tag ON memory_tag(tenant_id, namespace, tag_id);
 
 CREATE TABLE tag_edge (
+  tenant_id TEXT NOT NULL,
+  namespace TEXT NOT NULL,
   source_tag_id TEXT NOT NULL,
   target_tag_id TEXT NOT NULL,
   weight REAL NOT NULL,                  -- Φ_src × Φ_dst
@@ -99,9 +110,9 @@ CREATE TABLE tag_edge (
   cooccur_count INTEGER NOT NULL,
   last_seen INTEGER NOT NULL,
   is_hot INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (source_tag_id, target_tag_id)
+  PRIMARY KEY (tenant_id, namespace, source_tag_id, target_tag_id)
 );
-CREATE INDEX idx_tag_edge_hot ON tag_edge(is_hot, weight DESC);
+CREATE INDEX idx_tag_edge_hot ON tag_edge(tenant_id, namespace, is_hot, weight DESC);
 
 CREATE TABLE episode (
   episode_id TEXT PRIMARY KEY,
@@ -134,6 +145,8 @@ CREATE TABLE semantic_fact (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+CREATE INDEX idx_fact_spo ON semantic_fact(tenant_id, namespace, subject, predicate);
+CREATE INDEX idx_fact_conflict ON semantic_fact(tenant_id, namespace, conflict_state);
 
 CREATE TABLE context_snapshot (
   snapshot_id TEXT PRIMARY KEY,
@@ -141,10 +154,12 @@ CREATE TABLE context_snapshot (
   namespace TEXT NOT NULL,
   source_session_id TEXT,
   content_hash BLOB NOT NULL,
+  source_scope_hash BLOB NOT NULL,
   created_by_agent_did TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL
 );
+CREATE INDEX idx_snapshot_expiry ON context_snapshot(tenant_id, namespace, expires_at);
 
 CREATE TABLE context_grant (
   grant_id TEXT PRIMARY KEY,
@@ -152,18 +167,21 @@ CREATE TABLE context_grant (
   receiver_agent_did TEXT NOT NULL,
   tenant_id TEXT NOT NULL,
   namespace TEXT NOT NULL,
-  allowed_layers_json TEXT NOT NULL,
-  allowed_ops_json TEXT NOT NULL,
+  allowed_triples_json TEXT NOT NULL,    -- capability/layer/action
+  access_mode TEXT NOT NULL,
   redaction_policy_id TEXT NOT NULL,
+  redaction_report_id TEXT,
   purpose TEXT NOT NULL,
   mandate_id TEXT NOT NULL,
+  fap_receipt_id TEXT NOT NULL,
   expires_at INTEGER NOT NULL,
   revoked INTEGER NOT NULL DEFAULT 0,
   revoked_at INTEGER,
   signature TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
-CREATE INDEX idx_grant_revoked ON context_grant(revoked, expires_at);
+CREATE INDEX idx_grant_receiver ON context_grant(receiver_agent_did, expires_at);
+CREATE INDEX idx_grant_revoked ON context_grant(tenant_id, namespace, revoked, expires_at);
 
 CREATE TABLE handoff_packet (
   packet_id TEXT PRIMARY KEY,
@@ -173,6 +191,7 @@ CREATE TABLE handoff_packet (
   redaction_policy_id TEXT NOT NULL,
   redaction_report_json TEXT NOT NULL,
   audit_chain_head TEXT NOT NULL,
+  fap_receipt_id TEXT NOT NULL,
   signature TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
@@ -182,24 +201,34 @@ CREATE TABLE audit_event (
   prev_event_hash BLOB,
   event_hash BLOB NOT NULL,
   tenant_id TEXT NOT NULL,
+  namespace TEXT NOT NULL,
   session_id TEXT,
   actor_did TEXT NOT NULL,
   operation TEXT NOT NULL,
   target_ref TEXT,
   mandate_id TEXT,
+  fap_receipt_id TEXT NOT NULL,
+  fap_invocation_id TEXT NOT NULL,
+  fap_envelope_hash BLOB NOT NULL,
+  fap_finality TEXT NOT NULL,
+  capability_triple_json TEXT NOT NULL,
   content_hash BLOB,
+  object_ref_hashes_json TEXT,
   index_version TEXT,
   timestamp INTEGER NOT NULL,
   signature TEXT NOT NULL
 );
-CREATE INDEX idx_audit_tenant_time ON audit_event(tenant_id, timestamp);
+CREATE INDEX idx_audit_tenant_time ON audit_event(tenant_id, namespace, timestamp);
+CREATE INDEX idx_audit_fap_receipt ON audit_event(fap_receipt_id);
 CREATE INDEX idx_audit_actor ON audit_event(actor_did, timestamp);
 
 CREATE TABLE chain_state (
-  tenant_id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  namespace TEXT NOT NULL,
   current_tip BLOB NOT NULL,
   last_verified_at INTEGER,
-  last_verified_event TEXT
+  last_verified_event TEXT,
+  PRIMARY KEY (tenant_id, namespace)
 );
 
 CREATE TABLE dream_proposal (
@@ -223,12 +252,40 @@ CREATE TABLE forget_receipt (
   receipt_id TEXT PRIMARY KEY,
   request_id TEXT UNIQUE NOT NULL,
   mode TEXT NOT NULL,                    -- soft | hard
+  status TEXT NOT NULL,                  -- COMMITTED_LOCALLY | GLOBALLY_RECONCILED | RECONCILE_FAILED
   target_ids_json TEXT NOT NULL,
   cascaded_ids_json TEXT NOT NULL,
+  local_mutations_json TEXT NOT NULL,
+  external_mutations_json TEXT NOT NULL,
+  pending_external_systems_json TEXT,
+  mutation_ledger_id TEXT,
+  local_committed_at INTEGER NOT NULL,
+  globally_reconciled_at INTEGER,
+  reconciliation_deadline INTEGER,
   audit_event_id TEXT NOT NULL,
-  completed_at INTEGER NOT NULL,
+  fap_receipt_id TEXT NOT NULL,
   signature TEXT NOT NULL
 );
+
+CREATE TABLE mutation_ledger (
+  ledger_id TEXT PRIMARY KEY,
+  operation TEXT NOT NULL,               -- forget | rebuild | external_audit_fanout
+  receipt_id TEXT,
+  tenant_id TEXT NOT NULL,
+  namespace TEXT NOT NULL,
+  local_tx_id TEXT NOT NULL,
+  external_system TEXT NOT NULL,
+  mutation_key TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  status TEXT NOT NULL,                  -- PENDING | APPLIED | FAILED | NEEDS_INTERVENTION
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  next_retry_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE (external_system, idempotency_key)
+);
+CREATE INDEX idx_mutation_ledger_status ON mutation_ledger(status, next_retry_at);
 
 CREATE TABLE replay_cache (
   message_id TEXT PRIMARY KEY,
@@ -239,14 +296,19 @@ CREATE INDEX idx_replay_expires ON replay_cache(expires_at);
 
 CREATE TABLE object_ref (
   object_id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  namespace TEXT NOT NULL,
   media_type TEXT NOT NULL,
   size_bytes INTEGER NOT NULL,
   sha256 BLOB NOT NULL,
   uri TEXT,
+  origin_node_id TEXT,
   lease_id TEXT,
+  lease_scope_hash BLOB,
   expires_at INTEGER,
   created_at INTEGER NOT NULL
 );
+CREATE INDEX idx_object_tenant ON object_ref(tenant_id, namespace, expires_at);
 ```
 
 ## 4. 向量索引
@@ -261,7 +323,7 @@ CREATE TABLE object_ref (
 要求：
 
 ```text
-add(memory_id, vector, meta)              事务一致
+add(memory_id, vector, meta)              本地索引与本地 DB 同事务；外部索引走 outbox
 search(query, top_k, filter)               filter 必经 TenantKernel
 mark_deleted(memory_id)                    软删除
 rebuild(chunks)                            支持 IndexVersion 切换
@@ -296,10 +358,12 @@ mmap：CSR 格式快照
   GC 队列处理过期对象
 
 S3 / MinIO：
-  bucket/objects/<sha256>
-  租户隔离用 prefix tenant_<id>/
+  bucket/tenants/<tenant_id>/namespaces/<namespace>/objects/<sha256>
+  ObjectRef 必须绑定 lease_scope_hash 与 origin_node_id
   保留本地热对象缓存
 ```
+
+ObjectRef 解析必须由 ObjectStore adapter 完成，禁止插件直接解析任意 `s3://` 或 `file://` URI。
 
 ## 7. 服务端 / 多租户存储拓扑
 

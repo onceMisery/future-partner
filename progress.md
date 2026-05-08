@@ -1,17 +1,19 @@
-# FAP-ME 设计文档审查进度
+# FAP-ME 设计文档修订进度
 
-## 会话记录
+## 本轮记录
 
-- 已启动文档审查任务，确认项目根目录此前不存在 `task_plan.md`、`findings.md`、`progress.md`。
-- 已创建本次审查的轻量工作记录文件。
-- 已完成 `fme` 文档清单和标题/关键词初筛，进入分批全文阅读与交叉核对阶段。
-- 已阅读 `00-overview.md` 至 `05-data-model.md`，记录初步架构、插件边界、租户字段、级联遗忘和事务一致性风险。
-- 已阅读 `06-control-plane.md` 至 `11-audit-and-receipt.md`，记录流式写入契约、幂等字段、安全检测顺序、ObjectRef、审计链和插件运行时风险。
-- 已阅读 `12-context-sharing.md` 至 `18-roadmap.md`，记录 Handoff 撤销语义、存储索引/事务、多 Profile、FAP-1 双审计链绑定和路线图依赖风险。
-- 已阅读 `kernel-contract.md`、`purpose-vocabulary.md`、`redaction-policy.md`、`content-safety.md`、`forget-engine.md`、`dream-state-machine.md`，记录授权词汇、脱敏可验证性、内容安全、遗忘事务和后台梦境风险。
-- 已阅读 `retain-score.md`、`scoring-formula.md`、`retrieval-fallback.md`、`tide-algorithm.md`、`lif-spike.md`、`tag-graph-v7.md`、`geodesic-rerank.md`、`multi-tenant.md`、`problem-catalog.md`、`README.md`，记录算法数学、多租户 TagGraph、降级和错误映射风险。
-- 已交叉阅读 FAP-1 的控制面、数据面、Wire Protocol、背压、Kernel Contract、插件、风险执行路径和 Receipt 文档，记录 FME 与 FAP-1 在调用入口、数据帧、Mandate、Receipt finality、ObjectRef 上的偏差。
-- 已核对 `02-记忆系统` 上层最终版与深度分析文档，确认 fme 目录修复了部分旧问题，但上层文档仍有 PolicyEngine 可插拔等过期内容。
-- 已完成风险归纳，准备按严重程度输出问题清单和改进建议。
-- 用户已确认修订原则：接受 P0/P1/P2 大部分建议，并细化 HardForget 双状态、RedactionReport 信任边界、Purpose 三元组授权、FME Mandate 复用 FAP-1 Mandate extension。
-- 已开始执行文档修订，不使用 subAgent，不提交 commit。
+- 使用 `planning-with-files` 恢复并继续计划；因用户已在当前工作区修改文档，未新建 worktree，避免丢失未提交上下文。
+- 以当前磁盘内容为准，保留用户已新增/修订的 `fap1-binding.md` 与 `outbox-reconciliation.md`，在其基础上做全文一致性修订。
+- 已修订 Purpose 授权模型：去除有效 schema 中的 `allowed_ops` 字符串授权，改为 `CapabilityTriple` 精确匹配。
+- 已修订安全模型：FME Mandate 收敛为 FAP-1 Mandate constraints，TenantKernel 不信任请求体 `tenant_id`。
+- 已修订审计/凭证引用：AuditEvent 增加 FAP-1 Receipt 绑定字段，ForgetReceipt 使用本地/全局双状态，RedactionReport 增加 classifier 与 sbu_manifest 语义。
+- 已修订上下文共享：ContextGrant 使用 `allowed_triples` + `access_mode`，明确撤销不等于已复制数据自动删除。
+- 已修订存储设计：Tag/TagEdge/MemoryTag 按 tenant/namespace 隔离，Grant/Audit/Forget/Mutation ledger schema 对齐新模型。
+- 已修订插件边界：第三方插件默认 WASM/sidecar，`rust_native` 限 builtin/trusted；host API 需 capability-scoped handle。
+- 已修订部署与算法：补 Edge Lite 512MB 容量预算；`CoreMemory` 改为 L2 protected tier；检索评分改为版本化校准归一化。
+- 已修订路线图：Phase 1 拆成 FAP-1 绑定、Kernel 安全、审计绑定、Data Plane/outbox 四道门禁。
+- 已运行残留扫描，关键旧风险项未再作为有效 schema 出现。
+
+## 待办
+
+- 最终交付前做一次综合 `rg` 验证并汇总修改范围。

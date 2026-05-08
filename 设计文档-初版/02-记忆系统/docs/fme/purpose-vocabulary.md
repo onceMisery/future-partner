@@ -4,11 +4,11 @@
 
 ## 1. 背景
 
-FAP-ME 不再定义独立的 Intent Mandate schema。记忆授权必须复用 FAP-1 `Mandate`，并通过 FME 约束扩展表达记忆语义：
+FAP-ME 不再定义独立的 FME Mandate schema。记忆授权必须复用 FAP-1 `Mandate`，并通过 FME 约束扩展表达记忆语义：
 
 ```text
 FAP-1 Mandate.capabilities   声明可调用的 capability
-FAP-1 Mandate.constraints    声明 memory.purpose / memory.layer / memory.action / memory.sbu_access 等约束
+FAP-1 Mandate.constraints    声明 memory.purpose / memory.allowed_triples / memory.sbu_access 等约束
 FME PurposeRegistry          给出每个标准 purpose 允许的三元组上界
 ```
 
@@ -364,6 +364,6 @@ Agent Card 必须声明支持的 purpose registry 版本和 hash：
 purpose 自由文本              标准 purpose + registry hash
 allowed_ops 字符串            CapabilityTriple 结构化精确匹配
 retrieve:L1 等混合命名        capability / layer / action 分离
-Intent Mandate 独立 schema    FAP-1 Mandate + FME constraints
+FME Mandate 独立 schema       FAP-1 Mandate + FME constraints
 contains / 前缀实现风险       禁止模糊匹配
 ```

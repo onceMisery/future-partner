@@ -137,9 +137,11 @@ Tag 提示抽取
 
 ```text
 输入：任意检索模式结果
-执行：PolicyKernel.redact + sensitivity_penalty
+执行：PolicyKernel.redact + SBU 硬过滤 + sensitivity_penalty
 输出：强脱敏结果 + RedactionReport
 ```
+
+`sbu_safe` 不能假设上游候选已经安全。即使 RedactionPolicy 已执行，返回前仍必须按 `security_labels` 与 Mandate constraints 做最后一轮硬过滤。
 
 适用：
 - 合规审计

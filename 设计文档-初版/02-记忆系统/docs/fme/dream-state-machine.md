@@ -121,8 +121,9 @@ PENDING_REVIEW + HIGH
 ### 7.1 审批者身份
 
 ```text
-审批者必须持有有效 Intent Mandate 且 purpose 包含：
-  "memory.dream.approve"
+审批者必须持有有效 FAP-1 Mandate，且 signed constraints 同时允许：
+  purpose = "memory_maintenance"
+  requested_triple = MEMORY_DREAM / MEMORY_LAYER_UNSPECIFIED / APPROVE
 
 详见 purpose-vocabulary.md 中的 memory_maintenance purpose。
 ```
@@ -130,7 +131,7 @@ PENDING_REVIEW + HIGH
 ### 7.2 审批接口
 
 ```proto
-rpc DreamApprove(DreamApprovalRequest) returns (DreamProposal);
+FAP-1 InvokeRequest(capability_id = "memory.dream.approve")
 
 message DreamApprovalRequest {
   string proposal_id = 1;
@@ -154,6 +155,7 @@ enum ApprovalAction {
 operation = "memory.dream.approve" | "memory.dream.reject"
 target_ref = proposal_id
 mandate_id = approver's mandate
+fap_receipt_id = FAP-1 receipt
 content_hash = hash(action + reason)
 ```
 

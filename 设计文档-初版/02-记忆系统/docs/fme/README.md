@@ -11,6 +11,8 @@
 | 文档 | 主题 |
 |---|---|
 | [kernel-contract.md](./kernel-contract.md) | **FME Kernel Contract** — Kernel 必留组件与插件边界 |
+| [fap1-binding.md](./fap1-binding.md) | **FAP-1 绑定规范** — capability、Mandate constraints、Receipt 绑定 |
+| [outbox-reconciliation.md](./outbox-reconciliation.md) | **跨系统一致性** — HardForget outbox、mutation ledger、reconciler |
 | [retain-score.md](./retain-score.md) | **分层量化标准** — retain_score / L0 折叠 / L2 写入门槛 |
 | [scoring-formula.md](./scoring-formula.md) | **检索打分公式** — final_score 与各模式权重矩阵 |
 
@@ -61,6 +63,7 @@
 | [purpose-vocabulary.md](./purpose-vocabulary.md) | Purpose 标准化词汇表 |
 | [multi-tenant.md](./multi-tenant.md) | 多租户隔离与插件配置 |
 | [forget-engine.md](./forget-engine.md) | 遗忘引擎与 SBU 强制遗忘 |
+| [outbox-reconciliation.md](./outbox-reconciliation.md) | 跨系统遗忘协调与最终一致 |
 | [dream-state-machine.md](./dream-state-machine.md) | 梦境提案审批状态机 |
 
 ### 运行时
@@ -68,14 +71,15 @@
 | 文档 | 主题 |
 |---|---|
 | [retrieval-fallback.md](./retrieval-fallback.md) | 检索降级链与背压 |
+| [fap1-binding.md](./fap1-binding.md) | FAP-1 capability / Mandate / Receipt 绑定 |
 | [problem-catalog.md](./problem-catalog.md) | 错误码目录 |
 
 ## 阅读顺序
 
-- 首次阅读：00 → 01 → 02 → **kernel-contract.md** → 03 → 04 → 10 → 11
+- 首次阅读：00 → 01 → 02 → **fap1-binding.md** → **kernel-contract.md** → 03 → 04 → 10 → 11
 - 实现者：02 + 09 + 16 + tide-algorithm + lif-spike + tag-graph-v7
-- 运维/安全：10 + 11 + content-safety + redaction-policy + purpose-vocabulary
-- 协议集成：15 + 12 + 06 + 07
+- 运维/安全：10 + 11 + content-safety + redaction-policy + purpose-vocabulary + outbox-reconciliation
+- 协议集成：fap1-binding + 15 + 06 + 07 + 12
 - 算法贡献者：tide-algorithm + lif-spike + geodesic-rerank + scoring-formula
 
 ## 与 FAP-1 协议的关系

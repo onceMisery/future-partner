@@ -39,7 +39,7 @@ crates/
 │   └── wasm_sandbox.rs     Wasmtime 集成
 │
 ├── fap-me-server/          axum + tonic 网关
-│   ├── grpc_service.rs
+│   ├── fap_invoke_service.rs
 │   ├── http_gateway.rs
 │   └── stream_handler.rs
 │
@@ -91,15 +91,15 @@ plugins/
 
 ```text
 proto/
-├── memory.proto            MemoryControlService + 控制消息
-├── handoff.proto           HandoffPacket + RedactionReport
-├── mandate.proto           Intent Mandate + StandardPurpose
+├── memory_types.proto      FME payload：MemoryUnit / CapabilityTriple / receipts
+├── handoff.proto           HandoffPacket + ContextGrant + RedactionReport
+├── purpose.proto           StandardPurpose + PurposeRegistry
 ├── dream.proto             DreamProposal 状态机
 ├── audit.proto             AuditEvent + ChainState
 └── redaction.proto         RedactionPolicy
 ```
 
-详见 [15-fap1-integration.md](./15-fap1-integration.md) 中的 Protobuf 定义。
+FME 不定义独立 `MemoryControlService`，也不定义独立 `mandate.proto`。外部调用入口复用 FAP-1 `InvokeRequest`；FME proto 只提供 `input`、`output` 和约束扩展所需的数据类型。详见 [15-fap1-integration.md](./15-fap1-integration.md) 与 [fap1-binding.md](./fap1-binding.md)。
 
 ## 5. sdk 目录
 

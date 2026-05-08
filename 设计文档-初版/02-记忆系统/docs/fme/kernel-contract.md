@@ -4,7 +4,7 @@
 
 ## 1. 原则
 
-可插拔架构 ≠ 一切可替换。若安全判定（Policy）、审计写入（Audit）、租户隔离（Tenant）、内容守卫（ContentSafety）、Mandate 校验、Replay 防护可被插件替换，整个 FAP-ME 的安全模型将被架空。
+可插拔架构 ≠ 一切可替换。若安全判定（Policy）、审计写入（Audit）、租户隔离（Tenant）、内容守卫（ContentSafety）、FAP-1 Mandate 约束校验、Replay 防护可被插件替换，整个 FAP-ME 的安全模型将被架空。
 
 ```text
 插件可以提供：
@@ -16,7 +16,7 @@
   安全判定的规则
   租户隔离的过滤逻辑
   哈希链生成与验证
-  Mandate 验证
+  FAP-1 Mandate + FME constraints 验证
   内容安全检查
   插件自身的权限裁决
 ```
@@ -25,8 +25,8 @@
 
 | 组件 | 必留理由 |
 |---|---|
-| MandateVerifier | Intent Mandate 签名/过期/purpose 校验，凭证不能由插件验证 |
-| PolicyKernel | 决策顺序固定：MandateVerify → Authorize → TenantFilter → ContentSafety |
+| MandateVerifier | FAP-1 Mandate 签名/过期/撤销及 FME constraints 校验，凭证不能由插件验证 |
+| PolicyKernel | 决策顺序固定：MandateVerify → CapabilityTriple Authorize → TenantFilter → ContentSafety |
 | TenantKernel | 强制 SQL 过滤注入，插件不能拼装查询 |
 | ContentSafetyGuard | Prompt Injection 防护，写入路径不可绕过 |
 | AuditKernel | hash chain 必须由 Core 原子生成与验证 |
@@ -60,12 +60,12 @@
   5. Session Check
   6. AuthN（FAP-1 AuthPlugin，仅协议级）
   7. AuthZ（FAP-1 PolicyPlugin，仅协议级）
-  8. MandateVerifier（FME Kernel）
-  9. PolicyKernel.authorize（含 purpose 词汇表）
+  8. MandateVerifier（FME Kernel，校验 FAP-1 Mandate + FME constraints）
+  9. PolicyKernel.authorize（含 purpose 词汇表与 capability triple）
  10. TenantKernel filter 注入
  11. ContentSafetyGuard.check_write（仅写入路径）
- 12. Plugin Sandbox
- 13. Memory Orchestrator → Plugin 调度
+ 12. Plugin Sandbox / Sidecar Boundary
+ 13. Memory Orchestrator → Plugin 调度（只传 capability-scoped handle）
  14. PolicyKernel.redact（仅检索返回）
  15. AuditKernel.append
 ```
@@ -82,6 +82,7 @@ chain_state.current_tip 的直接修改权
 mandate / context_grant / forget_receipt 表的直接写入权
 ContentSafetyGuard 的拦截规则
 RedactionPolicy 的执行决定
+FAP-1 Receipt 与 FME AuditEvent 的绑定字段
 ```
 
 ## 6. Plugin Permission Arbiter
@@ -89,6 +90,7 @@ RedactionPolicy 的执行决定
 ```text
 插件发起任何 host API 调用时：
   → Arbiter 查 manifest.permissions
+  → 再查本次调用的 capability-scoped handle
   → 决策 allow / deny
   → 记录审计
 
@@ -97,6 +99,7 @@ RedactionPolicy 的执行决定
   自行声明"我需要这个权限"
   修改自己的 manifest
   访问 Arbiter 的内部状态
+  把一次调用拿到的 handle 缓存到后续请求复用
 ```
 
 ## 7. 反面教材（禁止模式）
@@ -109,10 +112,13 @@ RedactionPolicy 的执行决定
 对：DreamWorker 返回 MemoryMutation 列表；Kernel 校验 + 执行
 
 错误：ForgetEngine 直接 DELETE FROM memory_unit
-对：ForgetEngine 返回级联清单；Kernel 在事务中执行
+对：ForgetEngine 返回级联清单；Kernel 在本地事务中执行本地 mutation，并为外部系统写 mutation ledger
 
 错误：VectorIndex 自己拼接 WHERE tenant_id = ...
 对：VectorIndex 接收已注入 filter 的 SearchFilter 参数
+
+错误：第三方插件以 runtime = rust_native 动态加载 .dll/.so
+对：第三方插件使用 WASM 或 sidecar；rust_native 仅允许 trusted/builtin 插件
 
 错误：AuditSink 决定哪些 event 要写哪些丢弃
 对：AuditKernel 决定写入策略，AuditSink 只负责持久化
@@ -133,7 +139,7 @@ RedactionPolicy 的执行决定
 MUST 通过的负例测试（≥ 30 用例）：
   插件试图访问其他 tenant                   → 拒绝
   插件试图修改 chain_state                  → 拒绝
-  插件试图跳过 mandate 校验                 → 拒绝
+  插件试图跳过 FAP-1 Mandate constraints 校验 → 拒绝
   插件试图伪造 redaction signature          → 拒绝
   插件试图直接写 ContextGrant               → 拒绝
   插件试图直接 DELETE memory_unit           → 拒绝
@@ -161,11 +167,11 @@ pub struct PolicyKernel {
 }
 
 impl PolicyKernel {
-    /// 唯一授权入口
+    /// 唯一授权入口。op 必须是 capability/layer/action 三元组。
     pub fn authorize(
         &self,
         session: &Session,
-        op: MemoryOp,
+        op: CapabilityTriple,
         scope: &MemoryScope,
     ) -> Result<AuthorizedOp, PolicyError>;
 
@@ -190,15 +196,16 @@ impl PolicyKernel {
 
 ```rust
 pub struct AuditKernel {
-    sink: Arc<dyn AuditSink>,                  // sink 可插件，逻辑不可
-    chain_state: Arc<Mutex<ChainState>>,
+    sinks: Vec<Arc<dyn AuditSink>>,            // sink 可插件，逻辑不可
+    chain_store: Arc<dyn ChainStateStore>,     // 按 tenant/namespace 分片
+    fanout_policy: AuditFanoutPolicy,
     integrity_scheduler: Arc<IntegrityScheduler>,
 }
 
 impl AuditKernel {
     pub fn append(&self, event: AuditEventInput) -> Result<AuditReceipt>;
-    pub fn verify_chain(&self, from: EventId, to: EventId) -> Result<ChainVerifyReport>;
-    pub fn detect_tampering(&self) -> Option<TamperingAlert>;
+    pub fn verify_chain(&self, tenant: TenantRef, from: EventId, to: EventId) -> Result<ChainVerifyReport>;
+    pub fn detect_tampering(&self, tenant: TenantRef) -> Option<TamperingAlert>;
 }
 ```
 

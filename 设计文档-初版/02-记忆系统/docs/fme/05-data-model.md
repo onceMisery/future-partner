@@ -9,7 +9,7 @@ MemoryUnit
 ├── memory_id              UUID v7（含时间戳）
 ├── tenant_id              租户隔离主键
 ├── namespace              业务命名空间（项目、团队等）
-├── layer                  L0 | L1 | L2
+├── layer                  L0 | L1 | L2 | L3
 ├── visibility             private | project | team | org | foreign
 ├── owner_subject_did      用户 DID
 ├── owner_agent_did        Agent DID（产生者）
@@ -36,6 +36,8 @@ MemoryUnit
 ```text
 Tag
 ├── tag_id                 stable hash（slug 化后哈希）
+├── tenant_id
+├── namespace
 ├── tag_name               规范化后的标签名
 ├── tag_type               topic | entity | intent | technique | other
 ├── doc_count              拥有此标签的 MemoryUnit 数（用于引力场）
@@ -57,6 +59,8 @@ mass = √doc_count × avg_cooccur × recency
 
 ```text
 TagEdge
+├── tenant_id
+├── namespace
 ├── source_tag_id          源 Tag
 ├── target_tag_id          目标 Tag
 ├── weight                 共现权重（势能积 Φ_src × Φ_dst）
@@ -120,6 +124,7 @@ ContextSnapshot
 ├── namespace
 ├── source_session_id
 ├── content_hash           snapshot 内容哈希（用于 grant 绑定）
+├── source_scope_hash      RedactionReport 覆盖范围哈希
 ├── memory_unit_ids[]      包含的 MemoryUnit
 ├── created_by_agent_did
 ├── created_at
@@ -140,12 +145,15 @@ ContextGrant
 ├── tenant_id
 ├── namespace
 ├── snapshot_ids[]         绑定的 snapshot
-├── allowed_layers         L0 | L1 | L2
-├── allowed_ops            read | append | merge
+├── allowed_triples[]      capability/layer/action 精确匹配
+├── access_mode            READ_ONLY | IMPORT_FOREIGN_EPISODE |
+│                          APPEND_PROJECT_L1 | MERGE_L2
 ├── redaction_policy_id    脱敏策略 ID
+├── redaction_report_id
 ├── expires_at
 ├── purpose                标准化 purpose（见 purpose-vocabulary.md）
-├── mandate_id             绑定 Mandate
+├── mandate_id             绑定 FAP-1 Mandate
+├── fap_receipt_id
 └── signature              发行方签名（JWS）
 ```
 
@@ -189,7 +197,13 @@ AuditEvent
 ├── operation              memory.retrieve / memory.store / ...
 ├── target_ref             被操作的 memory_id 或 grant_id
 ├── mandate_id
+├── fap_receipt_id
+├── fap_invocation_id
+├── fap_envelope_hash
+├── fap_finality
+├── capability_triple
 ├── content_hash
+├── object_ref_hashes[]
 ├── index_version
 ├── timestamp
 └── signature
@@ -199,9 +213,12 @@ AuditEvent
 
 ```text
 event_hash = SHA256(
-  prev_event_hash || tenant_id || session_id ||
+  prev_event_hash || tenant_id || namespace || session_id ||
   actor_did || operation || target_ref ||
-  mandate_id || content_hash || timestamp
+  mandate_id || fap_receipt_id || fap_invocation_id ||
+  fap_envelope_hash || fap_finality ||
+  canonical(capability_triple) ||
+  content_hash || canonical(object_ref_hashes) || timestamp
 )
 ```
 
@@ -249,10 +266,18 @@ ForgetReceipt
 ├── receipt_id
 ├── request_id
 ├── mode                   soft | hard
+├── status                 COMMITTED_LOCALLY | GLOBALLY_RECONCILED |
+│                          RECONCILE_FAILED
 ├── target_ids[]
 ├── cascaded_ids[]         级联清除的下游
+├── local_mutations[]      SQLite/PG + 本地索引 + 本地 CAS
+├── external_mutations[]   S3/Kafka/Qdrant/远端 sink
+├── pending_external_systems[]
+├── mutation_ledger_id
 ├── audit_event_id
-├── completed_at
+├── fap_receipt_id
+├── local_committed_at
+├── globally_reconciled_at?
 └── signature
 ```
 

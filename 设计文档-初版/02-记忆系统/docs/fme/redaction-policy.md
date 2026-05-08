@@ -7,7 +7,7 @@
 ```text
 脱敏策略格式标准化（fap-redaction-v1）
 RedactionReport 必须含执行方签名
-接收方可独立验证：
+接收方可验证报告声明：
   - 执行方是谁
   - 用了哪个 policy / version
   - 用了哪个 classifier / version
@@ -78,7 +78,7 @@ RedactionReport 必须含执行方签名
       "match": { "field": "lineage_parent_ids" },
       "action": "HASH",
       "algorithm": "SHA256",
-      "salt_from": "tenant_id"
+      "salt_from": "redaction_report_id"
     }
   ],
   "produce_report": true,
@@ -134,7 +134,7 @@ REMOVE + tombstone：
                                         }
 ```
 
-接收方知道"此处曾有 SBU 内容"，但不能恢复原值。
+接收方知道"此处曾有被策略移除的内容"，但不能恢复原值。跨组织共享时，是否包含 tombstone 由策略决定；高隐私场景可选择不暴露 tombstone，以避免泄漏"此处存在敏感内容"这一事实。
 
 ## 7. SBU Manifest（新增）
 

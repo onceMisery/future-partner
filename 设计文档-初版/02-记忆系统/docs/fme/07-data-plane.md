@@ -157,6 +157,15 @@ message ObjectRef {
 
 `ObjectStorePlugin` 即 FAP-ME `ObjectStore` 插件，统一接口（详见 [09-plugin-runtime.md](./09-plugin-runtime.md)）。
 
+ObjectRef 安全约束：
+
+```text
+1. uri 只允许 ObjectStore adapter 解析，插件不得直接打开 file:// 或任意 s3://
+2. object_id / lease_id 必须绑定 tenant_id、namespace、origin_node_id 与 scope hash
+3. 接收方读取前必须校验 sha256、lease 未过期、scope 被 Mandate constraints 覆盖
+4. 跨租户 ObjectRef 只能通过 ContextGrant / HandoffPacket 间接传递
+```
+
 ## 11. 背压与流控
 
 完全继承 FAP-1：

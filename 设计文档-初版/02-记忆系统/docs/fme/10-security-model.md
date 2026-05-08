@@ -15,7 +15,7 @@
 审计层    AuditKernel + FAP-1 Receipt binding
 ```
 
-每一层在 Kernel 内顺序执行，不可被插件改写或跳过。FME 不定义独立 Intent Mandate；所有记忆约束必须进入 FAP-1 Mandate 的签名范围。
+每一层在 Kernel 内顺序执行，不可被插件改写或跳过。FME 不定义独立 Mandate schema；所有记忆约束必须进入 FAP-1 Mandate 的签名范围。
 
 ## 2. 不可插件化的安全组件（Kernel）
 

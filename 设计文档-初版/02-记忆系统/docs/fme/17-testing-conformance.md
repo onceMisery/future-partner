@@ -22,7 +22,8 @@ E2E                跨 Agent Handoff / 跨组织 DID-VC
 插件试图修改 chain_state.current_tip         → 拒绝
 插件试图访问其他 tenant 数据                 → 拒绝
 插件试图访问其他 plugin 状态                 → 拒绝
-插件试图伪造 mandate signature               → 拒绝
+插件试图伪造 FAP-1 Mandate signature          → 拒绝
+插件试图复用过期 capability-scoped handle     → 拒绝
 插件试图重排 PolicyKernel 判定顺序           → 拒绝
 插件试图写 ContextGrant 表                   → 拒绝
 插件试图直接删除 raw content                 → 拒绝
@@ -37,7 +38,7 @@ embedding 输入超 token 限制                    → 拒绝
 SBU 标签内容自动晋升 L2                         → 拒绝
 RedactionReport 签名错误                       → 拒绝
 ContextGrant 过期后访问                        → 拒绝
-未授权 purpose 访问                            → 拒绝
+未授权 capability/layer/action 三元组访问      → 拒绝
 mandate 已撤销但仍在 60s 内被使用              → 必须拒绝
 ```
 
@@ -47,7 +48,8 @@ mandate 已撤销但仍在 60s 内被使用              → 必须拒绝
 audit chain 断链检测                          → 必须告警
 embedding 模型升级后 index_version 不匹配      → 必须拒绝读取
 L2 写入 stability < 0.6                       → 必须拒绝
-HardForget 后 raw / embedding / snapshot 仍存在 → 测试失败
+HardForget 本地提交后 raw / embedding / snapshot / 本地 CAS 仍存在 → 测试失败
+HardForget 外部系统未入 mutation ledger         → 测试失败
 冲突 fact 未走 resolve_l2_conflict             → 测试失败
 ```
 
@@ -79,12 +81,12 @@ plugins/*                 ≥ 70%
 ### 4.1 完整写入与检索
 
 ```text
-1. Agent A → MemoryStoreRequest（L0 append）
+1. Agent A → FAP-1 InvokeRequest(capability_id = memory.store)
 2. 触发 CompactStrategy.should_fold
 3. fold → L1 episode 写入
 4. embedding + Cortex.add + Synapse.upsert
 5. AuditKernel.append
-6. Agent A → MemoryRetrieveRequest（mode=hybrid）
+6. Agent A → FAP-1 InvokeRequest(capability_id = memory.retrieve, mode=hybrid)
 7. 验证返回 RecallResult 含 ScoreBreakdown
 8. 验证审计链中存在两个事件（store + retrieve）
 ```
@@ -99,8 +101,9 @@ plugins/*                 ≥ 70%
 5. Agent B 验证 packet_signature
 6. Agent B 调用 PolicyKernel.verify_redaction_report
 7. Agent B redeem grant，读取脱敏后内容
-8. 验证 SBU 内容不出现在 Agent B 的访问中
+8. 验证未授权 SBU 原文不出现在 Agent B 的访问中
 9. 审计链中存在 share / handoff / redeem 三个事件
+10. 跨租户场景下 RedactionReport 必须含 sbu_manifest
 ```
 
 ### 4.3 SBU 强制遗忘
@@ -110,13 +113,15 @@ plugins/*                 ≥ 70%
 2. 该 unit 的 lineage 衍生 L1 episode、L2 fact、HNSW vector、ContextGrant
 3. HardForget 请求
 4. ForgetEngine.plan 返回完整级联清单
-5. Kernel 执行 mutations
-6. 验证：
+5. Kernel 执行本地事务 mutations，签发 COMMITTED_LOCALLY ForgetReceipt
+6. Reconciler 处理 S3/Qdrant/Kafka 等外部 mutation ledger
+7. 验证：
    - raw content 不可读
    - embedding 不在索引中
    - snapshot 不存在
    - grant 已撤销
-   - audit 链有 ForgetReceipt
+   - audit 链有 ForgetReceipt 且绑定 fap_receipt_id
+   - 外部系统达成后 receipt 状态更新为 GLOBALLY_RECONCILED
 ```
 
 ### 4.4 DreamProposal 审批

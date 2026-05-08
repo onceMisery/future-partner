@@ -14,7 +14,7 @@
 
 FAP-ME 只在 FAP-1 之上追加：
   memory.* 系列 capability 注册
-  Mandate constraint：memory.layer / memory.purpose / memory.sbu_access
+  Mandate constraint：memory.purpose / memory.allowed_triples / memory.sbu_access
   AuditEvent 含 fap_receipt_id 反向引用
 ```
 
@@ -27,6 +27,7 @@ FAP-ME 只在 FAP-1 之上追加：
 | `memory.retrieve` | RetrieveInput | OPTIMISTIC | low |
 | `memory.store` | StoreInput | VERIFIED | medium |
 | `memory.share` | ShareInput | VERIFIED | medium |
+| `memory.context.redeem` | RedeemGrantInput | VERIFIED | medium |
 | `memory.handoff.create` | HandoffCreateInput | VERIFIED | medium |
 | `memory.handoff.receive` | HandoffReceiveInput | VERIFIED | medium |
 | `memory.forget.soft` | ForgetInput | VERIFIED | high |
@@ -43,8 +44,10 @@ FAP-ME 只在 FAP-1 之上追加：
 ```text
 OPTIMISTIC   单签即完成（仅检索类）
 VERIFIED     单签 + AuditSink 持久化（写入类默认）
-FINALIZED    Multisig + 全部 AuditSink 确认 + 跨系统达成最终一致
+FINALIZED    Multisig + 协议级 Receipt 最终化；不等于外部系统已全局协调
 ```
+
+HardForget 的跨系统状态由 ForgetReceipt `COMMITTED_LOCALLY / GLOBALLY_RECONCILED` 表达，不能把 FAP-1 finality 当作外部 S3/Kafka/Qdrant 已删除的证明。
 
 ## 3. 内部 gRPC service 的定位
 
@@ -89,14 +92,12 @@ message Constraint {
 
 | constraint.type | value 示例 | 含义 |
 |---|---|---|
-| `memory.layer` | `["L0","L1","L2"]` | 允许访问的层 |
 | `memory.purpose` | `"project_debugging"` | 标准 purpose |
-| `memory.sbu_access` | `"false"` \| `"redacted_only"` \| `"true"` | SBU 访问级别 |
-| `memory.tenant` | `"tenant-acme"` | 限定租户 |
+| `memory.allowed_triples` | `[{"capability":"MEMORY_RETRIEVE","layer":"L1","action":"READ"}]` | 允许的 capability/layer/action 三元组 |
+| `memory.sbu_access` | `"DENY"` \| `"REDACTED_ONLY"` \| `"RAW_ALLOWED"` | SBU 访问级别 |
 | `memory.namespaces` | `["proj-x","proj-y"]` | 限定命名空间 |
-| `memory.exclude_security_labels` | `["secret","sbu"]` | 显式排除标签 |
+| `memory.security_label_exclude` | `["secret","sbu"]` | 显式排除标签 |
 | `memory.cross_tenant` | `"true"` | 是否允许跨租户 |
-| `memory.max_layer` | `"L2"` | 最高可达层 |
 | `memory.classifier_version_min` | `"0.3.1"` | 接收 RedactionReport 时要求的最低分类器版本 |
 
 ### Mandate 字段语义映射
@@ -105,8 +106,7 @@ message Constraint {
 |---|---|
 | `mandate_id` | FAP-1 |
 | `purpose` | FAP-1 `constraints[type="memory.purpose"]` |
-| `allowed_ops` | FAP-1 `capabilities` |
-| `allowed_layers` | FAP-1 `constraints[type="memory.layer"]` |
+| `allowed_triples` | FAP-1 `constraints[type="memory.allowed_triples"]` |
 | `expires_at` | FAP-1 |
 | `budget_units` | FAP-1（可用于限制 dream 调用次数等） |
 | `revoked` | FAP-1 撤销表 |
@@ -120,7 +120,7 @@ message Constraint {
 委托：直接走 FAP-1 委托链
   父 mandate.capabilities 含 memory.retrieve
   子 mandate.capabilities ⊆ 父
-  子 constraints 必须更严或同级（如 layers 子集 + scope 子集）
+  子 constraints 必须更严或同级（如 allowed_triples 子集 + scope 子集）
 
 撤销：直接走 FAP-1 撤销表
   撤销一份 mandate 同时切断协议级与记忆级（修复路线 A 的安全漏洞）
@@ -134,7 +134,7 @@ PolicyKernel 用规范化的三元组精确匹配，不使用字符串 `contains
 ```rust
 pub struct CapabilityTriple {
     pub capability: MemoryCapability,    // enum
-    pub layer: Option<Layer>,            // L0 | L1 | L2 | L3 | None
+    pub layer: MemoryLayer,              // L0 | L1 | L2 | L3 | MEMORY_LAYER_UNSPECIFIED
     pub action: ActionKind,              // READ | WRITE | DELETE_SOFT | DELETE_HARD | APPROVE | ADMIN
 }
 
@@ -161,8 +161,9 @@ PolicyKernel 决策：
 
 ```text
 请求 op 解析为 CapabilityTriple
-mandate.capabilities 解析为 Set<CapabilityTriple>
-精确匹配：op ∈ mandate.capabilities → 通过
+mandate.capabilities 校验 capability_id
+mandate.constraints[type="memory.allowed_triples"] 解析为 Set<CapabilityTriple>
+精确匹配：requested_triple ∈ allowed_triples → 通过
 任何字符串前缀 / 子串 / 通配符匹配 → 拒绝
 ```
 
@@ -238,6 +239,9 @@ memory.admin.rebuild     FINALIZED
 
 memory.handoff.create    VERIFIED（默认）
                          可升级到 FINALIZED 当 grant.scope 跨租户
+
+memory.context.redeem    VERIFIED（默认）
+                         若 access_mode = MERGE_L2，升级到 FINALIZED
 ```
 
 OPTIMISTIC 不允许用于 risk_level ≥ medium 的 capability。
@@ -306,6 +310,7 @@ Agent Card 中 `memory` 子节必须与 FAP-1 主声明一致：
   "capabilities": {
     "memory.retrieve": { "risk_level": "low", "supports_streaming": true },
     "memory.store":    { "risk_level": "medium", "supports_batch": true },
+    "memory.context.redeem": { "risk_level": "medium", "default_finality": "VERIFIED" },
     "memory.forget.hard": {
       "risk_level": "critical",
       "default_finality": "FINALIZED",
@@ -317,12 +322,11 @@ Agent Card 中 `memory` 子节必须与 FAP-1 主声明一致：
     "version": "1.0",
     "purpose_registry_version": "1.0",
     "mandate_constraints": [
-      "memory.layer",
       "memory.purpose",
+      "memory.allowed_triples",
       "memory.sbu_access",
-      "memory.tenant",
       "memory.namespaces",
-      "memory.exclude_security_labels",
+      "memory.security_label_exclude",
       "memory.cross_tenant",
       "memory.classifier_version_min"
     ]

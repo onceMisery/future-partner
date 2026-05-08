@@ -40,10 +40,20 @@ pub fn decide_layer(score: f32) -> LayerDecision {
         s if s < 0.60 => LayerDecision::IntoL1,          // 进入剧集摘要
         s if s < 0.80 => LayerDecision::IntoL2,          // 进入语义本体
         s if s < 0.90 => LayerDecision::L2HighSalience,  // 高显著性 L2
-        _             => LayerDecision::CoreMemory,      // 晋升核心记忆
+        _             => LayerDecision::IntoL2Protected, // L2 保护级保留
     }
 }
 ```
+
+`IntoL2Protected` 不表示新的记忆层。它只是在 L2 上设置策略标签：
+
+```text
+core_memory = true
+retention_tier = "protected"
+requires_human_forget_approval = true
+```
+
+四层模型仍然只有 L0-L3。旧版本中出现的 `CoreMemory` 枚举应迁移为 `IntoL2Protected` + retention metadata。
 
 ## 3. L0 折叠触发
 
@@ -193,6 +203,7 @@ retain_score：在 OCMS 总体设计    恢复完整公式
                   中存在，最终版    并定义分层决策
                   消失
 L2 写入：定性描述                 量化门槛 + 冲突仲裁
+CoreMemory 命名混入层级            改为 L2 protected retention tier
 冲突仲裁：未定义                  Supersede / Fork / Reject
 ```
 

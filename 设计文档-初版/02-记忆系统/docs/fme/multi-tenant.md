@@ -98,19 +98,20 @@ schema "tenant_globex":
 ```text
 Qdrant：
   collection per tenant：fapme_<tenant_id>
+  namespace 必须进入 payload filter，禁止跨 namespace 统计混合
   
 HNSW (单机)：
-  index file per tenant：indexes/<tenant_id>/hnsw_v1.rkyv
+  index file per tenant/namespace：indexes/<tenant_id>/<namespace>/hnsw_v1.rkyv
 ```
 
 ### 4.4 对象存储
 
 ```text
 S3：bucket prefix per tenant：
-  s3://fap-me-prod/tenants/<tenant_id>/objects/<sha256>
+  s3://fap-me-prod/tenants/<tenant_id>/namespaces/<namespace>/objects/<sha256>
 
 本地 CAS：
-  .fap-me/tenants/<tenant_id>/objects/
+  .fap-me/tenants/<tenant_id>/namespaces/<namespace>/objects/
 ```
 
 ## 5. 插件级别配置覆盖
@@ -193,12 +194,13 @@ TenantKernel.inject_filter 始终注入 WHERE tenant_id = :session_tenant
 ### 6.2 显式允许
 
 ```text
-1. mandate.purpose 必须是 cross_tenant=true 的 purpose
+1. signed constraint memory.purpose 必须是 cross_tenant=true 的 purpose
    （如 knowledge_transfer 或 cross_agent_collaboration）
-2. mandate.scope 显式列出 allowed_tenants
+2. FAP-1 Mandate constraints 显式列出允许的 namespace / cross_tenant
 3. 跨组织时必须 requires_vc = true（VC 验证）
 4. RedactionPolicy.cross_org_safe = true
-5. 写审计：cross_tenant.access
+5. RedactionReport 必须携带 sbu_manifest
+6. 写审计：cross_tenant.access
 ```
 
 ### 6.3 数据流向
@@ -227,8 +229,8 @@ TenantKernel.inject_filter 始终注入 WHERE tenant_id = :session_tenant
 ## 8. 多租户审计隔离
 
 ```text
-每个 tenant 独立的 audit chain head
-每个 tenant 独立的 chain_state 行
+每个 tenant/namespace 独立的 audit chain head
+每个 tenant/namespace 独立的 chain_state 行
 跨 tenant 的审计查询需 admin mandate
 ```
 
@@ -287,7 +289,7 @@ allow_high_risk_auto_approve = false
    - 所有 handoff_packet（标记 redacted）
    - 保留 audit_event（合规要求）
 3. 写最终审计 tenant.purged
-4. 返回 ForgetReceipt
+4. 返回 ForgetReceipt；本地状态为 COMMITTED_LOCALLY，外部 S3/Qdrant/Kafka 等系统通过 mutation ledger 达成 GLOBALLY_RECONCILED
 ```
 
 ## 12. 与最终版的差距

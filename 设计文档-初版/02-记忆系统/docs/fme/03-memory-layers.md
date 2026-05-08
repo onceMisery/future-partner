@@ -21,6 +21,8 @@ L0 ──fold──→ L1 ──extract──→ L2 ──forget/decay──→ 
 
 L3 不存储新内容，只对 L0/L1/L2 做后台维护：梦境整合、压缩、重索引、遗忘扫描、拓扑修复。
 
+`CoreMemory` 不是第五层，也不是 L4。若需要表达“高保留价值的长期事实”，应作为 L2/L3 相关策略标签或 retention tier 表达，例如 `core_memory = true`、`retention_tier = protected`，不能改变 L0-L3 的分层模型。
+
 ---
 
 ## 2. L0 - Immediate Context（即时上下文）
@@ -81,7 +83,7 @@ Continue         其余
 | 典型内容 | "完成了某次排障"、"某次 PR 修改过程"、"多 Agent 协作记录" |
 | 控制面操作 | `StoreEpisode` `FoldEpisode` `UpdateEpisode` `ShareEpisode` |
 | 检索方式 | BM25 + Vector + Tag 过滤 |
-| 安全策略 | namespace ACL + Intent Mandate |
+| 安全策略 | namespace ACL + FAP-1 Mandate constraints |
 
 ### 在 Handoff 中的角色
 

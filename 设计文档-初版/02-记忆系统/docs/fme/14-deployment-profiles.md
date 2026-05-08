@@ -47,6 +47,29 @@ Plugin：
 CPU：单核可用
 ```
 
+### Edge Lite 容量模型
+
+512MB 目标仅在启用裁剪策略时成立：
+
+| 组件 | 预算 | 策略 |
+|---|---:|---|
+| Kernel + runtime | 96MB | 固定常驻 |
+| SQLite page cache + WAL | 96MB | checkpoint + page cache 上限 |
+| 本地 HNSW / sqlite-vec | 160MB | mmap，热层 Top-K，冷索引按需加载 |
+| Tag hot graph | 48MB | Top-N 热边，默认 50k，可按设备下调 |
+| ContentSafety / redaction rules | 32MB | 预编译规则，分类器可用轻量版 |
+| Audit / outbox buffers | 32MB | 小批量刷盘，外部 sink 禁用或异步 |
+| 余量 | 48MB | 瞬时查询、序列化、SDK |
+
+裁剪规则：
+
+```text
+L0 ring buffer 超预算 → 先 fold，再丢弃低 retain_score 临时项
+HNSW mmap 超预算 → 切 sqlite-vec 或只保留 L1/L2 热分区
+TagGraph 超预算 → 降低 hot edge Top-N，冷边保留在 SQLite
+DreamWorker 默认关闭；LLM sidecar 不计入 Edge Lite 常驻预算
+```
+
 ### 部署示例
 
 ```bash
@@ -184,7 +207,7 @@ audit_sink = ["kafka", "s3"]
 
 [security]
 auth = ["mtls", "jwt", "did", "vc", "dpop"]
-intent_mandate_required = true
+fap_mandate_constraints_required = true
 content_safety_guard = true
 chain_integrity_verify_cron = "30 0 * * *"
 

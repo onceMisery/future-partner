@@ -191,7 +191,7 @@ fallback_rate = fallback_count / total_retrieve_count
   写审计：retrieval.partial_result
 ```
 
-部分结果不影响 final_score 排序的正确性（只是少了某些路径的贡献）。
+部分结果只保证“已返回候选内部按可用信号排序”，不保证与完整候选池的全局排序等价。响应必须带 `partial_result = true`、`actual_mode` 和缺失路径列表，审计回放时按这些 metadata 解释得分。
 
 ## 9. SbuSafe 模式特殊处理
 

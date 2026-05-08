@@ -40,7 +40,7 @@ ForgetRequest
       [HARD] purge 本地 raw content
       mark vector deleted（本地索引文件）
       update tag graph 引用（本地）
-      forget_ledger insert（pending external mutations）
+      mutation_ledger insert（pending external mutations）
       audit_event insert（status = COMMITTED_LOCALLY）
   → COMMIT
   → 签发 ForgetReceipt { status: COMMITTED_LOCALLY, pending_external_systems[] }
@@ -51,7 +51,7 @@ ForgetRequest
 详见 [outbox-reconciliation.md](./outbox-reconciliation.md)。
 
 ```text
-Cerebellum 的 ForgetReconciler 异步处理 forget_ledger：
+Cerebellum 的 ForgetReconciler 异步处理 mutation_ledger：
   - vector_index.mark_deleted（远程 Qdrant）
   - object_store.delete（远程 S3）
   - audit_sink.fan_out（远程 Kafka / S3 归档）
@@ -76,7 +76,7 @@ pub trait ForgetEngine: Plugin {
     /// 本地 mutation：在单事务内执行
     fn local_mutations(&self, plan: &ForgetPlan) -> Vec<MemoryMutation>;
 
-    /// 跨系统 mutation：写入 forget_ledger 由 reconciler 异步达成
+    /// 跨系统 mutation：写入 mutation_ledger 由 reconciler 异步达成
     fn external_mutations(&self, plan: &ForgetPlan) -> Vec<ExternalMutation>;
 }
 
@@ -101,7 +101,7 @@ pub struct ExternalMutation {
 6. context_grant 中绑定此 snapshot 的 grant 撤销（本地表）
 7. 本地 HNSW 索引文件 mark_deleted
 8. 本地 CAS 对象删除（content_ref 指向时）
-9. forget_ledger 写入 pending external mutations
+9. mutation_ledger 写入 pending external mutations
 10. audit_event 写入 (status = COMMITTED_LOCALLY)
 ```
 
@@ -116,7 +116,7 @@ pub struct ExternalMutation {
 - HandoffPacket 接收方：写审计 inform.handoff_revocation_needed（不可强制远端删除，需对端配合）
 ```
 
-每条外部 mutation 进 forget_ledger，由 reconciler 重试到 SUCCESS 或 NEEDS_INTERVENTION。
+每条外部 mutation 进 mutation_ledger，由 reconciler 重试到 SUCCESS 或 NEEDS_INTERVENTION。
 
 ## 6. ForgetRequest 选项
 
@@ -276,7 +276,7 @@ forget_tenant_purge_total                     tenant 级遗忘（合规）
 -----                                   -----
 单事务覆盖 raw + embedding + snapshot   本地事务 + 外部 saga
 + grant + vector + object + audit       双状态 ForgetReceipt
-                                        forget_ledger 幂等 ledger
+                                        mutation_ledger 幂等 ledger
 ForgetReceipt 单状态（暗示已完成）       COMMITTED_LOCALLY / GLOBALLY_RECONCILED / RECONCILE_FAILED
 失败时无补偿语义                         NEEDS_INTERVENTION + 人工介入流程
 不允许请求方等待最终一致                wait_for_reconciled / callback_url

@@ -28,7 +28,8 @@
 | `fap-me/mandate-revoked` | 401 | Mandate 已撤销 |
 | `fap-me/mandate-signature-invalid` | 401 | Mandate 签名验证失败 |
 | `fap-me/mandate-purpose-unknown` | 400 | purpose 不在标准词汇表 |
-| `fap-me/mandate-purpose-mismatch` | 403 | purpose 与请求 op 不匹配 |
+| `fap-me/mandate-purpose-mismatch` | 403 | purpose 与请求 capability triple 不匹配 |
+| `fap-me/capability-triple-denied` | 403 | capability/layer/action 三元组未被授权 |
 | `fap-me/mandate-scope-violation` | 403 | scope 超出 purpose 允许 |
 | `fap-me/mandate-ttl-exceeded` | 400 | mandate TTL 超过 purpose.max_ttl_hours |
 | `fap-me/elevated-mandate-required` | 403 | 需 elevated mandate |
@@ -78,10 +79,11 @@
 | `fap-me/grant-expired` | 410 | ContextGrant 已过期 |
 | `fap-me/grant-revoked` | 410 | ContextGrant 已撤销 |
 | `fap-me/grant-signature-invalid` | 401 | Grant 签名错误 |
-| `fap-me/grant-op-not-allowed` | 403 | 接收方 op 不在 grant.allowed_ops |
+| `fap-me/grant-triple-not-allowed` | 403 | 接收方 capability triple 不在 grant.allowed_triples |
 | `fap-me/redaction-report-invalid` | 400 | RedactionReport 验证失败 |
 | `fap-me/redaction-policy-untrusted` | 400 | 策略未在 trusted_policies |
-| `fap-me/redaction-incomplete` | 400 | SBU 移除数量不足 |
+| `fap-me/redaction-manifest-missing` | 400 | 跨租户/跨组织共享缺少 sbu_manifest |
+| `fap-me/redaction-classifier-too-old` | 400 | classifier_version 低于接收方要求 |
 | `fap-me/handoff-signature-invalid` | 401 | HandoffPacket 签名错误 |
 
 ### 2.6 Index / Storage (5xx)
@@ -113,6 +115,8 @@
 | `fap-me/dream-apply-failed` | 500 | mutation 应用失败 |
 | `fap-me/forget-failed` | 500 | 遗忘流程失败 |
 | `fap-me/forget-cascade-incomplete` | 500 | 级联清理不完整 |
+| `fap-me/forget-reconcile-pending` | 202 | 本地已提交遗忘，外部系统仍在协调 |
+| `fap-me/forget-reconcile-failed` | 500 | 外部系统协调失败，需要人工介入 |
 
 ### 2.9 Plugin (5xx)
 
@@ -138,7 +142,7 @@
 | `fap-me/sbu-safe-cannot-fallback` | 504 | sbu_safe 不可降级 |
 | `fap-me/topology-explosion-guard` | 200* | LIF 拓扑爆炸保护触发（warning） |
 
-*`fap-me/retrieval-fallback` 与 `partial-result` 用 200 + warning header 返回。
+*`fap-me/retrieval-fallback` 与 `partial-result` 是 warning，不是失败。HTTP 可以用 200 + `Warning` 或响应 metadata；gRPC/streaming 必须放入 frame metadata、trailer 或 FAP-1 problem extension，不能只依赖 HTTP header。
 
 ## 3. 标准响应
 
@@ -163,7 +167,7 @@ Content-Type: application/problem+json
 
 ```text
 FAP-1 错误码     协议级（Envelope / Replay / Auth）
-FAP-ME 错误码    记忆扩展级（Mandate.purpose / SBU / Redaction / Plugin / ...）
+FAP-ME 错误码    记忆扩展级（FME constraints / SBU / Redaction / Plugin / ...）
 
 两者命名空间不冲突：
   FAP-1：fap/<category>-<reason>
@@ -175,14 +179,17 @@ FAP-ME 错误码    记忆扩展级（Mandate.purpose / SBU / Redaction / Plugin
 ## 5. 警告与降级
 
 ```text
-warning header 用于：
+warning metadata 用于：
   retrieval-fallback   降级提示
   partial-result       部分结果
   topology-guard       保护性截断
   redaction-applied    脱敏已应用
 
-格式：
+HTTP 格式：
   Warning: 199 fap-me "fap-me/retrieval-fallback" "Fell back from tagmemo to hybrid"
+
+FAP-1 Data Plane / gRPC 格式：
+  frame.metadata.problem_warnings[] 或 trailer.metadata.problem_warnings[]
 ```
 
 ## 6. 客户端处理建议
@@ -205,8 +212,9 @@ warning header 用于：
 按 type 分组监控：
   fap-me/chain-broken                   红色告警（防篡改）
   fap-me/tampering-detected             红色告警
-  fap-me/forget-cascade-incomplete      红色告警（合规）
-  fap-me/redaction-incomplete           红色告警（数据泄露风险）
+  fap-me/forget-cascade-incomplete      红色告警（本地合规失败）
+  fap-me/forget-reconcile-failed        红色告警（跨系统协调失败）
+  fap-me/redaction-manifest-missing     红色告警（跨组织共享策略错误）
 
   fap-me/dream-expired                  黄色告警（审批流程问题）
   fap-me/quota-exceeded                 黄色告警（容量规划）

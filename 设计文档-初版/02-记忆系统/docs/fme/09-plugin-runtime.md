@@ -81,15 +81,16 @@ pub trait VectorIndex: Plugin {
 
 ```rust
 pub trait TagGraph: Plugin {
-    fn upsert(&self, memory_id: MemoryId, tags: &[Tag]) -> Result<()>;
-    fn expand(&self, seeds: &[Tag], params: &LifParams) -> Result<SpikeTrace>;
-    fn prune(&self, min_weight: f32, max_age_days: u32) -> Result<PruneReport>;
+    fn upsert(&self, scope: &TenantNamespace, memory_id: MemoryId, tags: &[Tag]) -> Result<()>;
+    fn expand(&self, scope: &TenantNamespace, seeds: &[Tag], params: &LifParams) -> Result<SpikeTrace>;
+    fn prune(&self, scope: &TenantNamespace, min_weight: f32, max_age_days: u32) -> Result<PruneReport>;
     /// 冷热分离
-    fn load_hot_edges(&self, top_n: usize) -> Result<HotGraph>;
-    fn flush_cold_edges(&self, hot_graph: &HotGraph) -> Result<()>;
+    fn load_hot_edges(&self, scope: &TenantNamespace, top_n: usize) -> Result<HotGraph>;
+    fn flush_cold_edges(&self, scope: &TenantNamespace, hot_graph: &HotGraph) -> Result<()>;
     /// V7 有向序位拓扑
     fn ordinal_expand(
         &self,
+        scope: &TenantNamespace,
         seeds: &[TagWithPotential],
         params: &OrdinalLifParams,
     ) -> Result<SpikeTrace>;
@@ -161,7 +162,7 @@ pub trait ForgetEngine: Plugin {
 pub trait AuditSink: Plugin {
     /// 仅写入；不计算 hash chain（由 AuditKernel 计算）
     fn append(&self, event: &SignedAuditEvent) -> Result<()>;
-    fn read_range(&self, from: EventId, to: EventId) -> Result<Vec<SignedAuditEvent>>;
+    fn read_range(&self, tenant: TenantRef, from: EventId, to: EventId) -> Result<Vec<SignedAuditEvent>>;
 }
 ```
 
@@ -170,9 +171,9 @@ pub trait AuditSink: Plugin {
 ```rust
 pub trait ObjectStore: Plugin {
     fn put(&self, content: &[u8], meta: ObjectMeta) -> Result<ObjectRef>;
-    fn get(&self, object_id: &str) -> Result<Vec<u8>>;
-    fn delete(&self, object_id: &str) -> Result<()>;
-    fn lease(&self, object_id: &str, ttl: Duration) -> Result<LeaseId>;
+    fn get(&self, object_ref: &ObjectRef, lease: &LeaseId) -> Result<Vec<u8>>;
+    fn delete(&self, object_ref: &ObjectRef, mutation_key: &MutationKey) -> Result<()>;
+    fn lease(&self, object_ref: &ObjectRef, ttl: Duration) -> Result<LeaseId>;
 }
 ```
 
@@ -216,11 +217,12 @@ version = "0.1.0"
 api_version = "1.0.0"
 min_core_version = "1.0.0"
 type = "vector_index"
-runtime = "rust_native"     # rust_native | wasm | sidecar
+runtime = "wasm"            # wasm | sidecar | rust_native
 entry = "libfap_me_vector_hnsw.so"
 risk_level = "low"
 experimental = false
 signature = "ed25519:<base64>"
+trust_tier = "third_party"  # builtin | trusted | third_party
 
 [capabilities]
 supports_streaming = false
@@ -257,6 +259,8 @@ WASM 插件不能：
 - 调用未在白名单内的宿主函数
 - 超时或越界内存（沙箱终止）
 
+`runtime = "rust_native"` 只允许 `trust_tier = "builtin"` 或由组织 owner 显式批准的 `trusted` 插件。第三方插件即使签名有效，也不能通过 `.so/.dll` 动态注入进入进程内地址空间。
+
 ## 7. 运行方式
 
 | 插件类型 | 推荐运行方式 |
@@ -268,6 +272,8 @@ WASM 插件不能：
 | 实验性 | WASM，默认关闭 |
 
 禁止 V1 使用任意 `.so/.dll` 动态注入。
+
+`rust_native` 的加载路径必须是构建期静态链接或受控发行包，不允许租户上传后动态加载。
 
 ## 8. 生命周期
 
@@ -292,6 +298,7 @@ UPLOADED → VALIDATED → STAGED → DRY_RUN_PASSED → ACTIVE
   访问其他插件的私有状态
   写入 mandate / receipt 表
   伪造 signature
+  缓存 capability-scoped handle 到本次调用之外
 ```
 
 ## 10. 插件审计
@@ -302,6 +309,8 @@ UPLOADED → VALIDATED → STAGED → DRY_RUN_PASSED → ACTIVE
 plugin.invoke(
   plugin_id,
   api_version,
+  trust_tier,
+  granted_capability_handle_hash,
   input_hash,
   output_hash,
   duration_ms,
