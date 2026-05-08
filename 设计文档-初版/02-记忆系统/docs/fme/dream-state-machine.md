@@ -89,7 +89,7 @@ SBU 内容永久阻断，不可审批通过
 
 ```text
 任何 DreamApprove 请求 → 拒绝（错误码 fap-me/dream-blocked）
-任何 DreamReject 请求 → 允许（变更状态为 REJECTED 用于审计）
+任何 DreamReject 请求 → 拒绝（仅写审计，不改变状态）
 ```
 
 ## 6. 自动审批策略

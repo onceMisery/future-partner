@@ -251,7 +251,8 @@ DreamProposal
 ├── proposal_id
 ├── tenant_id
 ├── status                 PENDING_REVIEW / AWAITING_APPROVAL / APPROVED /
-│                          APPLYING / APPLIED / REJECTED / EXPIRED / BLOCKED
+│                          APPLYING / APPLIED / APPLY_FAILED /
+│                          REJECTED / EXPIRED / BLOCKED
 ├── risk_level             LOW | MEDIUM | HIGH
 ├── sbu_blocked            true 时永久阻断
 ├── mutations[]            建议的变更

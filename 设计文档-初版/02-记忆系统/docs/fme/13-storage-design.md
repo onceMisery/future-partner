@@ -243,7 +243,9 @@ CREATE TABLE chain_state (
 CREATE TABLE dream_proposal (
   proposal_id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL,
-  status TEXT NOT NULL,                  -- 状态机字段
+  status TEXT NOT NULL,                  -- PENDING_REVIEW | AWAITING_APPROVAL | APPROVED |
+                                         -- APPLYING | APPLIED | APPLY_FAILED |
+                                         -- REJECTED | EXPIRED | BLOCKED
   risk_level TEXT NOT NULL,
   sbu_blocked INTEGER NOT NULL DEFAULT 0,
   mutations_json TEXT NOT NULL,
@@ -305,7 +307,7 @@ CREATE TABLE mutation_ledger (
   target_system TEXT NOT NULL,                 -- qdrant_prod | s3_us_east | kafka_audit | did:web:agent-b ...
   payload_json TEXT NOT NULL,                  -- 幂等执行参数
   idempotency_key TEXT NOT NULL,               -- 外部系统幂等键
-  status TEXT NOT NULL,                        -- PENDING | IN_FLIGHT | SUCCESS | FAILED
+  status TEXT NOT NULL,                        -- PENDING | IN_FLIGHT | SUCCESS
                                                -- NEEDS_INTERVENTION | ADVISORY_DELIVERED
   attempts INTEGER NOT NULL DEFAULT 0,
   last_error TEXT,

@@ -518,7 +518,7 @@ JSON 编码必须使用字符串名（避免大小端误解）；数字仅在 ca
 3. RedactionReport：3 条样本（cross-tenant / within-tenant / sampled coverage）
 4. ContextGrant：2 条样本（同租户 / 跨租户）
 5. HandoffPacket：2 条样本
-6. DreamProposal：3 条样本（PENDING_REVIEW / APPROVED / BLOCKED）
+6. DreamProposal：4 条样本（PENDING_REVIEW / APPROVED / APPLY_FAILED / BLOCKED）
 ```
 
 测试向量随 SDK 发布，跨实现必须 byte-for-byte 一致。

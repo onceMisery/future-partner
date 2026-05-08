@@ -59,7 +59,7 @@ Cerebellum 的 ForgetReconciler 异步处理 mutation_ledger：
 
 完成所有外部 mutation 后：
   - 签发 ForgetReconciledReceipt
-  - audit_event 更新 status = GLOBALLY_RECONCILED
+  - 追加 audit_event（operation = forget.reconciled，绑定 reconciled 证据）
   - 通知请求方（若订阅）
 ```
 

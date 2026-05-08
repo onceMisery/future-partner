@@ -71,7 +71,7 @@ SQL 事务边界：
 │          告警                                                     │
 │                                                                   │
 │  完成所有 mutation 后：                                           │
-│    audit_event.update status = GLOBALLY_RECONCILED                │
+│    audit_event.append(operation = forget.reconciled, receipt_id)  │
 │    签发 ForgetReconciledReceipt                                   │
 │    通知请求方（若有 wait_for_reconciled 订阅）                    │
 └──────────────────────────────────────────────────────────────────┘
@@ -86,7 +86,7 @@ SQL 事务边界：
 - tenant_id / namespace 列：reconciler 按租户分片
 - mutation_kind 命名空间：forget.* | dream.* | admin.*
 - shard_key：(tenant_id, mutation_kind) → shard_id，用于 reconciler 多 worker 分片
-- status：PENDING | IN_FLIGHT | SUCCESS | FAILED | NEEDS_INTERVENTION | ADVISORY_DELIVERED
+- status：PENDING | IN_FLIGHT | SUCCESS | NEEDS_INTERVENTION | ADVISORY_DELIVERED
 - attempts / next_retry_at / last_error：指数退避状态
 - signature：mutation 描述本地签名（防 reconciler 写入路径篡改）
 ```
@@ -219,7 +219,7 @@ SQL 事务回滚 → 不写 mutation_ledger → 不返回 ForgetReceipt
 ### 9.2 阶段二部分失败
 
 ```text
-mutation_ledger 中部分 mutation 状态 = SUCCESS，部分 = FAILED
+mutation_ledger 中部分 mutation 状态 = SUCCESS，部分仍为 PENDING / IN_FLIGHT
 ForgetReceipt 维持 COMMITTED_LOCALLY
 继续重试失败项
 请求方查询时看到 pending_external_systems[]
