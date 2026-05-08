@@ -12,7 +12,9 @@
 |---|---|
 | [kernel-contract.md](./kernel-contract.md) | **FME Kernel Contract** — Kernel 必留组件与插件边界 |
 | [fap1-binding.md](./fap1-binding.md) | **FAP-1 绑定规范** — capability、Mandate constraints、Receipt 绑定 |
-| [outbox-reconciliation.md](./outbox-reconciliation.md) | **跨系统一致性** — HardForget outbox、mutation ledger、reconciler |
+| [signing-canonical.md](./signing-canonical.md) | **签名 canonical encoding 总锚** — AuditEvent / ForgetReceipt / RedactionReport / Grant / Handoff / Dream 的字段顺序与 hash/签名规则 |
+| [outbox-reconciliation.md](./outbox-reconciliation.md) | **跨系统一致性** — HardForget outbox、mutation ledger、reconciler、ADVISORY_DELIVERED |
+| [chain-state-concurrency.md](./chain-state-concurrency.md) | **chain_state 并发** — CAS、隔离模式、跨 schema 完整性验证 |
 | [retain-score.md](./retain-score.md) | **分层量化标准** — retain_score / L0 折叠 / L2 写入门槛 |
 | [scoring-formula.md](./scoring-formula.md) | **检索打分公式** — final_score 与各模式权重矩阵 |
 
@@ -58,8 +60,10 @@
 | 文档 | 主题 |
 |---|---|
 | [kernel-contract.md](./kernel-contract.md) | FME Kernel Contract |
+| [signing-canonical.md](./signing-canonical.md) | 签名 canonical encoding 总锚 |
+| [chain-state-concurrency.md](./chain-state-concurrency.md) | 审计链并发与跨隔离模式 verify |
 | [content-safety.md](./content-safety.md) | 内容安全：Prompt Injection 防护 |
-| [redaction-policy.md](./redaction-policy.md) | 脱敏策略与 RedactionReport |
+| [redaction-policy.md](./redaction-policy.md) | 脱敏策略与 RedactionReport（含 SBU 三层过滤分布） |
 | [purpose-vocabulary.md](./purpose-vocabulary.md) | Purpose 标准化词汇表 |
 | [multi-tenant.md](./multi-tenant.md) | 多租户隔离与插件配置 |
 | [forget-engine.md](./forget-engine.md) | 遗忘引擎与 SBU 强制遗忘 |
@@ -76,10 +80,10 @@
 
 ## 阅读顺序
 
-- 首次阅读：00 → 01 → 02 → **fap1-binding.md** → **kernel-contract.md** → 03 → 04 → 10 → 11
-- 实现者：02 + 09 + 16 + tide-algorithm + lif-spike + tag-graph-v7
-- 运维/安全：10 + 11 + content-safety + redaction-policy + purpose-vocabulary + outbox-reconciliation
-- 协议集成：fap1-binding + 15 + 06 + 07 + 12
+- 首次阅读：00 → 01 → 02 → **fap1-binding.md** → **kernel-contract.md** → **signing-canonical.md** → 03 → 04 → 10 → 11
+- 实现者：02 + 09 + 16 + signing-canonical + chain-state-concurrency + tide-algorithm + lif-spike + tag-graph-v7
+- 运维/安全：10 + 11 + content-safety + redaction-policy + purpose-vocabulary + outbox-reconciliation + chain-state-concurrency
+- 协议集成：fap1-binding + signing-canonical + 15 + 06 + 07 + 12
 - 算法贡献者：tide-algorithm + lif-spike + geodesic-rerank + scoring-formula
 
 ## 与 FAP-1 协议的关系

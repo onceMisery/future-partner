@@ -76,6 +76,16 @@ Hippocampus    SQLite WAL、mmap、事务、版本               不做计算
 Cerebellum     后台任务调度、梦境、压缩、健康分析         不阻塞主路径
 ```
 
+> **脑区不是部署单元，也不是插件接口**。脑区是 Memory Orchestrator 内部对计算职责的逻辑分组——一种"职责分配的架构隐喻"。具体的可替换边界在 §3 的 9 个 Plugin Trait（EmbeddingProvider / VectorIndex / TagGraph / CompactStrategy / Reranker / DreamWorker / ForgetEngine / AuditSink / ObjectStore），脑区与插件不是 1:1 关系。例如：
+>
+> - Cortex 的 HNSW 索引由 `VectorIndex` 插件实现
+> - Synapse 的 LIF 与 V7 拓扑由 `TagGraph` 插件实现
+> - Cerebellum 的梦境与遗忘由 `DreamWorker` / `ForgetEngine` 插件实现
+> - Thalamus 是 Core 内置的 Tide 编排逻辑，**不**对应任何 Plugin Trait
+> - Hippocampus 是 Core 内置的事务/存储抽象，**不**对应任何 Plugin Trait（Storage 通过 `StoragePlugin` 配置，但脑区映射给 Hippocampus）
+>
+> 阅读 04-cognitive-core.md 时把脑区视为"该职责由哪些 Plugin 协作完成"的分类索引，不要把它当成可单独部署或替换的模块。
+
 详见 [04-cognitive-core.md](./04-cognitive-core.md)。
 
 ## 5. 数据流方向

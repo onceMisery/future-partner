@@ -55,6 +55,8 @@ When unsure whether something is "Kernel" or "Plugin", default to Kernel and fla
 The two anchors for cross-cutting consistency in FAP-ME are:
 - `fap1-binding.md` — protocol binding (capability / Mandate constraints / Receipt)
 - `outbox-reconciliation.md` — cross-system consistency (HardForget outbox / mutation ledger / reconciler)
+- `signing-canonical.md` — single source of truth for canonical encoding of every signed object (AuditEvent / ForgetReceipt / RedactionReport / ContextGrant / HandoffPacket / DreamProposal). Field order, hash inputs, enum integers, and `capability_id ↔ CapabilityTriple` mappings live here. Any other document showing a different field order is wrong.
+- `chain-state-concurrency.md` — `chain_state` CAS model, isolation-mode placement, and the `chain_state_registry` used by `ChainIntegrityScheduler`.
 
 ## Working conventions
 

@@ -29,15 +29,22 @@ Plugin：
   EmbeddingProvider：local（sentence-transformers / ONNX）
   VectorIndex：sqlite-vec 或 usearch（mmap）
   TagGraph：SQLite edge + hot mmap
-  CompactStrategy：retain_score 默认实现
+  CompactStrategy：retain_score 默认实现（rule-only，不依赖 LLM sidecar）
+                   rule-only 模式仅用 token 阈值 + retain_score 加权抽取摘要
+                   不要求 LLM 推理，详见 retain-score.md
   AuditSink：SQLite append-only
-检索模式：basic + hybrid
+检索模式：basic + hybrid + sbu_safe        # sbu_safe 必须支持以满足合规
 不启用：
   Qdrant / Redis / Kafka
   DID/VC（用 mTLS+JWT 即可）
   WASM 沙箱（仅核心 Rust 插件）
-  DreamWorker（可选）
+  DreamWorker（可选；启用时也仅 rule-only，不依赖 sidecar）
+  tide / tagmemo / tagmemo_geodesic / dream（可选）
 ```
+
+> **rule-only fold**：Edge Lite 可能没有 LLM sidecar，CompactStrategy.fold() 必须能在仅 retain_score + 抽取式摘要的条件下完成；摘要质量低于 LLM 但保证可用。详见 [retain-score.md](./retain-score.md)。
+
+> **sbu_safe 必含**：边缘 Agent 也可能接收带 SBU 标记的内容；不支持 sbu_safe 的部署在合规场景下不可用。Edge Lite 默认启用 `basic + hybrid + sbu_safe` 三件套。
 
 ### 资源要求
 

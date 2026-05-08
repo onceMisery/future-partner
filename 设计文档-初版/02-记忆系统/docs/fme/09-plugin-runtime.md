@@ -57,25 +57,57 @@ pub enum PluginHealth {
 ```rust
 pub trait EmbeddingProvider: Plugin {
     fn embed(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>>;
-    fn dimension(&self) -> usize;
-    fn model_id(&self) -> &str;
+
+    /// 完整签名：(model_id, dim, version) 三元组。
+    /// 双索引切换、跨版本路由、memory_unit.embedding_signature 列均使用本签名。
+    fn embedding_signature(&self) -> EmbeddingSignature;
+}
+
+pub struct EmbeddingSignature {
+    pub model_id: String,        // "openai-text-embedding-3-small"
+    pub dim: u32,                // 1536
+    pub version: String,         // "2024-02-01" 或 SemVer
+}
+
+impl EmbeddingSignature {
+    pub fn canonical(&self) -> String {
+        format!("{}|{}|{}", self.model_id, self.dim, self.version)
+    }
 }
 ```
+
+实现要求：
+
+```text
+1. embed() 返回的向量长度必须等于 dim
+2. embedding_signature() 在 plugin 生命周期内不变（升级 = 新插件实例 + new fork_version）
+3. memory_unit.embedding_signature = signature.canonical() 字符串
+4. VectorIndex 必须按 embedding_signature 隔离索引文件 / collection；不允许混合维度
+5. 双索引切换由 fork_version 触发；新旧两个 EmbeddingProvider + 两个 VectorIndex 同时存在
+   直到 admin.rebuild 完成
+```
+
+`memory_unit.embedding_signature` 与 VectorIndex 当前 signature 不一致的项不可被检索（应走 rebuild）。
 
 ### 3.2 VectorIndex
 
 ```rust
 pub trait VectorIndex: Plugin {
+    /// 索引绑定的 embedding 签名；不一致的向量必须拒绝
+    fn embedding_signature(&self) -> EmbeddingSignature;
+
     fn add(&self, id: MemoryId, vector: &[f32], meta: IndexMetadata) -> Result<()>;
     fn search(&self, query: &[f32], top_k: usize, filter: &SearchFilter) -> Result<Vec<VectorHit>>;
     fn mark_deleted(&self, id: MemoryId) -> Result<()>;
     fn rebuild(&self, chunks: Box<dyn Iterator<Item = IndexChunk>>) -> Result<IndexVersion>;
     /// 双索引切换：embedding 模型升级时
-    fn fork_version(&self) -> Result<Box<dyn VectorIndex>>;
+    fn fork_version(&self, new_signature: EmbeddingSignature) -> Result<Box<dyn VectorIndex>>;
     /// 切流评估：双索引共存期路由用
     fn query_routing_score(&self) -> f32;
 }
 ```
+
+`add()` / `search()` 必须先校验输入 `vector.len() == embedding_signature().dim`，否则返回 `fap-me/index-version-mismatch`。`fork_version()` 创建一个新的 `VectorIndex` 实例，绑定不同 signature；新旧两个并存直到 `admin.rebuild` 完成所有 memory 的迁移。
 
 ### 3.3 TagGraph
 

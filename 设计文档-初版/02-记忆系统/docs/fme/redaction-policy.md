@@ -321,6 +321,61 @@ RedactionPolicy          共享/读取前变换式（脱敏视图）
 
 详见 [content-safety.md](./content-safety.md)。
 
+## 14.1 SBU 过滤责任分布（检索路径三层职责）
+
+检索路径上 SBU 过滤分散在三处，以下为权威分工。任何实现把这三层合并、跳过、或重排即违反 [kernel-contract.md](./kernel-contract.md)。
+
+```text
+┌──────────────────────────────────────────────────────────────────────┐
+│ Layer 1：候选池打分阶段（ranking）                                       │
+│   位置：scoring-formula §3 中的 sensitivity_penalty                    │
+│   职责：以 w_sbu = 1.0 把 SBU 候选挤到分数末端                            │
+│   输入：候选 + mandate.sbu_access                                        │
+│   输出：调整后的 final_score                                              │
+│   不做：删除 / 重写 / 隐去原文                                             │
+│   边界：仅作排序信号，不能视为安全保障；候选仍含 SBU 原文                       │
+└──────────────────────────────────────────────────────────────────────┘
+                              ↓
+┌──────────────────────────────────────────────────────────────────────┐
+│ Layer 2：返回路径前的策略脱敏（PolicyKernel.redact）                      │
+│   位置：10-security-model §3 / 06-control-plane §3                     │
+│   职责：按 RedactionPolicy 执行 REMOVE / HASH / REDACT / SUMMARIZE       │
+│   输入：候选 + grant.redaction_policy_id 或 tenant 默认 policy            │
+│   输出：脱敏后视图 + RedactionReport                                      │
+│   不做：决定是否需要脱敏（由 mandate.sbu_access 决定，PolicyKernel 调度）     │
+│   边界：插件不得参与；策略未匹配命中也不能保证零残留（详见 §1）                  │
+└──────────────────────────────────────────────────────────────────────┘
+                              ↓
+┌──────────────────────────────────────────────────────────────────────┐
+│ Layer 3：sbu_safe 模式的最后一道硬过滤                                    │
+│   位置：08-retrieval-modes §4.7                                        │
+│   职责：在 Layer 2 结果上再做 security_labels 与 mandate.sbu_access 校验    │
+│   输入：脱敏后视图                                                         │
+│   输出：去掉所有仍带 sbu / secret 标签的项                                  │
+│   不做：策略变换（已由 Layer 2 处理）                                        │
+│   边界：sbu_safe 不可降级（fap-me/sbu-safe-cannot-fallback）                │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+各层之间的不变式：
+
+| 不变式 | 谁保证 |
+|---|---|
+| Layer 1 不能替代 Layer 2（penalty 不是脱敏） | scoring-formula 注释 + Conformance 用例 |
+| Layer 2 必须经过 PolicyKernel.redact，插件不得改写 | kernel-contract §3 |
+| Layer 3 不假设 Layer 2 已完美脱敏（不可依赖前提） | 08-retrieval-modes §4.7 |
+| `mandate.sbu_access = DENY` 在三层任一处命中即返回空 / 拒绝 | PolicyKernel.authorize |
+| `RAW_ALLOWED` 仅 elevated mandate + 强审计；三层全部跳过 redact 仍要写 `sbu.raw_returned` 审计 | PolicyKernel.authorize + AuditKernel |
+
+实现 checklist：
+
+```text
+✅ Layer 1 不读 grant 与 redaction_policy_id（仅看 mandate.sbu_access）
+✅ Layer 2 不修改候选打分；只做内容变换并产出 RedactionReport
+✅ Layer 3 仅做白名单 / 黑名单过滤，不依赖 RedactionPolicy
+✅ 任一层异常 → 返回空结果 + 写审计；不允许"按部分结果返回"
+```
+
 ## 15. 失败模式
 
 | 失败 | 行为 |

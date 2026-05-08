@@ -45,7 +45,8 @@ FAP-ME 增加：
       "memory.store",
       "memory.share",
       "memory.context.redeem",
-      "memory.forget",
+      "memory.forget.soft",
+      "memory.forget.hard",
       "memory.handoff.create",
       "memory.handoff.receive",
       "memory.audit.query",
@@ -224,15 +225,16 @@ FAP-ME 在 FAP-1 Capability Registry 中注册以下 capability：
 
 | capability_id | risk_level | requires_mandate | minimum finality |
 |---|---|---:|---|
-| `memory.retrieve` | low | true | PROVISIONAL allowed |
+| `memory.retrieve` | low | true | OPTIMISTIC allowed |
 | `memory.store` | medium | true | VERIFIED；合规关键写入可升级 FINALIZED |
 | `memory.share` | medium | true | VERIFIED；跨租户/跨组织升级 FINALIZED |
 | `memory.context.redeem` | medium | true | VERIFIED；`MERGE_L2` 升级 FINALIZED |
-| `memory.forget` | high | true | FINALIZED before local commit |
-| `memory.handoff.create` | medium | true | FINALIZED |
-| `memory.handoff.receive` | medium | true | FINALIZED |
-| `memory.audit.query` | low | true | FINALIZED for compliance export |
-| `memory.dream.propose` | low | true | PROVISIONAL allowed |
+| `memory.forget.soft` | high | true | VERIFIED |
+| `memory.forget.hard` | critical | true | FINALIZED before local commit |
+| `memory.handoff.create` | medium | true | VERIFIED；跨租户升级 FINALIZED |
+| `memory.handoff.receive` | medium | true | VERIFIED |
+| `memory.audit.query` | low | true | OPTIMISTIC allowed；合规导出场景升级 FINALIZED |
+| `memory.dream.propose` | low | true | VERIFIED |
 | `memory.dream.approve` | high | true | FINALIZED before applying mutation |
 | `memory.admin.rebuild` | critical | true | FINALIZED |
 

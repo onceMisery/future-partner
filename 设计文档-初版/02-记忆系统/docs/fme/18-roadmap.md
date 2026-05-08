@@ -15,31 +15,40 @@ Phase 6   DreamWorker + 后台维护 + 生产化    5 周
                                               23 周
 ```
 
-## 2. Phase 1：Kernel Contract + FAP-1 绑定门禁（3 周）
+## 2. Phase 1：Kernel Contract + FAP-1 绑定门禁（6-8 周）
 
-Phase 1 拆为四道顺序门禁。未通过前一道，不进入下一道：
+> 原计划 3 周不现实——交付物覆盖 5 个 Kernel 组件 + WASM 沙箱 + 30+ 个 Conformance + Schema 冻结 + outbox 闭环 + 多语言 SDK。本 Phase 拆为四道顺序门禁，按工程量重新评估为 6-8 周（含两周 Schema 冻结对账）。
+
+未通过前一道，不进入下一道：
 
 ```text
-Gate 1  FAP-1 Binding Freeze
+Gate 1  FAP-1 Binding Freeze（≈ 1.5 周）
         - 所有外部调用走 FAP-1 InvokeRequest
         - 不暴露独立 MemoryControlService
         - FAP-1 Mandate + FME constraints schema 冻结
-        - capability/layer/action 三元组冻结
+        - capability/layer/action 三元组冻结（含 enum 整数值）
+        - capability_id 全表（含 .create / .receive / .soft / .hard 拆分）冻结
+        - signing-canonical.md 测试向量发布
 
-Gate 2  Kernel Security Baseline
+Gate 2  Kernel Security Baseline（≈ 2 周）
         - PolicyKernel / TenantKernel / MandateVerifier / ContentSafetyGuard 不可插件化
         - capability-scoped plugin handle 生效
         - tenant_id 不信任请求体
+        - chain_state 并发模型（CAS + base_revision）落地
+        - chain_state_registry 注册中心可枚举
 
-Gate 3  Audit & Receipt Binding
+Gate 3  Audit & Receipt Binding（≈ 1.5 周）
         - AuditEvent 包含 fap_receipt_id / fap_invocation_id / fap_envelope_hash
-        - chain_state 按 tenant/namespace 分片
-        - 高风险 finality 策略落地
+        - AuditEvent canonical encoding 与 signing-canonical 一致（Conformance 测试向量通过）
+        - 高风险 finality 策略落地（FINALIZED 默认）
+        - 周期 chain integrity verify 调度
 
-Gate 4  Data Plane & Outbox Baseline
+Gate 4  Data Plane & Outbox Baseline（≈ 2 周）
         - 大对象与流式 chunk 复用 FAP-1 Data Plane
-        - ForgetReceipt 双状态 schema 落地
+        - ForgetReceipt 双状态 schema + 双签名落地
         - mutation_ledger / outbox reconciler 最小闭环
+        - reconciler leader election + sharding 验收
+        - ADVISORY_DELIVERED 状态在跨 Agent 通知场景跑通
 ```
 
 ### 交付物
@@ -74,12 +83,15 @@ Gate 4  Data Plane & Outbox Baseline
 ### 验收标准
 
 ```text
-1. 任何绕过 PolicyKernel 直接访问存储的路径均无法编译
+1. 任何绕过 PolicyKernel 直接访问存储的路径在 Conformance 用例中均被拒绝
+   （编译期 lint 与运行期负例两层保证；不要求"无法编译"绝对承诺）
 2. 插件注册版本冲突时系统拒绝启动
 3. ContentSafetyGuard 能拦截 ≥ 10 个标准 Prompt Injection 模式
 4. Protobuf 可生成 Go / Rust / TypeScript SDK 类型
 5. FAP-1 Receipt 与 FME AuditEvent 可端到端互相定位
 6. Conformance 负例 ≥ 30 个全部通过
+7. signing-canonical 测试向量集所有实现 byte-for-byte 一致
+8. capability_id ↔ CapabilityTriple 推导被穷举测试（至少覆盖 12 项 capability）
 ```
 
 ## 3. Phase 2：L0/L1 基础记忆闭环（3 周）
@@ -319,10 +331,13 @@ DreamWorker 升级失败：
 ## 12. 关键里程碑
 
 ```text
-W3    FAP-1 绑定、Kernel Contract、审计绑定、outbox 基线通过
-W6    L0/L1 闭环，basic + hybrid 上线
-W11   认知检索全模式上线，TagMemo V7 + 测地线重排可用
-W14   Handoff + RedactionReport 完整链路通过
-W18   合规 + DID/VC + SBU 强制遗忘通过
-W23   DreamWorker + 完整生产化，进入 GA
+W6-W8   FAP-1 绑定、Kernel Contract、审计绑定、outbox 基线通过
+        （signing-canonical 测试向量 + chain-state-concurrency 落地）
+W9-W11  L0/L1 闭环，basic + hybrid + sbu_safe 上线
+W12-W16 认知检索全模式上线，TagMemo V7 + 测地线重排可用
+W17-W19 Handoff + RedactionReport 完整链路通过
+W20-W23 合规 + DID/VC + SBU 强制遗忘通过
+W24-W28 DreamWorker + 完整生产化，进入 GA
 ```
+
+> 与原 23 周相比延后约 5 周——主要在 Phase 1 重新计入 Schema 冻结对账与 chain_state 并发实现的工程量。后续 Phase 不变。

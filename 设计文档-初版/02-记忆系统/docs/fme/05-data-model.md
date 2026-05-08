@@ -237,8 +237,7 @@ MemoryVersion
 ├── revision               单调递增
 ├── base_revision          乐观锁基础
 ├── content_hash
-├── embedding_model
-├── embedding_version
+├── embedding_signature    "model_id|dim|version"（取代旧 embedding_model + embedding_version 双字段）
 ├── index_version
 ├── tag_graph_version
 ├── ontology_version

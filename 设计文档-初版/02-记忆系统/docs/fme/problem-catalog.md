@@ -102,6 +102,8 @@
 |---|---:|---|
 | `fap-me/chain-broken` | 500 | 审计链断裂（防篡改告警） |
 | `fap-me/chain-verify-failed` | 500 | 链完整性验证失败 |
+| `fap-me/chain-cas-exhausted` | 500 | chain_state CAS 重试用尽（写入锁定） |
+| `fap-me/chain-registry-missing` | 500 | chain_state_registry 中缺该 (tenant, namespace) |
 | `fap-me/audit-sink-unavailable` | 503 | AuditSink 不可达 |
 | `fap-me/tampering-detected` | 500 | 检测到链篡改 |
 

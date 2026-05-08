@@ -14,7 +14,8 @@
 | 4 | complete | 修订 P0：控制面、数据面、FAP-1 绑定、审计绑定、HardForget、存储一致性、多租户 TagGraph |
 | 5 | complete | 修订 P1：安全模型、Mandate constraints、Purpose 三元组、RedactionReport、插件边界、Handoff |
 | 6 | complete | 修订 P2：CoreMemory 命名、Edge Lite 容量模型、评分归一化、路线图依赖 |
-| 7 | in_progress | 全文一致性检查、残留旧 schema 扫描、交付汇总 |
+| 7 | complete | 全文一致性检查、残留旧 schema 扫描、交付汇总 |
+| 8 | complete | 第二轮深度审查：schema 冻结对账（P0）、并发/治理空白（P1）、表述/可行性（P2）；新增 signing-canonical.md / chain-state-concurrency.md |
 
 ## 已确认决策
 

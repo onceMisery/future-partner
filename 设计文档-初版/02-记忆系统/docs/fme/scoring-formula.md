@@ -27,7 +27,7 @@ final_score =
 vector_score = max(0, cosine_similarity(query_embedding, candidate_embedding))
 ```
 
-候选 embedding 必须与 query 在同一索引版本（embedding_model 相同）。
+候选 embedding 必须与 query 在同一索引版本（`embedding_signature` 相同；详见 09-plugin-runtime EmbeddingProvider）。
 
 ### bm25_score
 
@@ -127,7 +127,7 @@ score_norm = clamp01(calibrator_v(raw_score))
 
 | 子项 | 校准方式 |
 |---|---|
-| vector_score | cosine 已在 [0,1]，按 embedding_model + index_version 做温度校准 |
+| vector_score | cosine 已在 [0,1]，按 `embedding_signature` + `index_version` 做温度校准 |
 | bm25_score | sigmoid(raw_bm25 / bm25_scale)，`bm25_scale` 固定进 scoring_version |
 | lif_spike_score | 除以理论上限或离线 P95，按 tag_graph_version 固定 |
 | tag_topology_score | 距离转相似度后按图版本校准 |

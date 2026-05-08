@@ -243,11 +243,13 @@ sbu_manifest 必须存在
 ```text
 memory.retrieve（含命中数、评分摘要、fap_receipt_id）
 memory.store（含 content_hash、data_commit_hash）
-memory.share（含 grant_id、redaction_report_id）
-memory.forget（含 local/global 状态、级联范围、ledger_id）
-memory.handoff（含 packet_signature）
-memory.dream.propose / approve / reject
+memory.share / memory.context.redeem（含 grant_id、redaction_report_id）
+memory.forget.soft / memory.forget.hard（含 local/global 状态、级联范围、ledger_id）
+memory.handoff.create / memory.handoff.receive（含 packet_signature）
+memory.dream.propose / memory.dream.approve / memory.dream.reject
+memory.audit.query（仅 compliance_audit purpose）
+memory.admin.rebuild
 plugin.invoke（含 input/output hash 与 granted capability handle）
-chain.integrity_verify
+chain.integrity_verify / chain.tampering_alert
 mandate.revoke
 ```
