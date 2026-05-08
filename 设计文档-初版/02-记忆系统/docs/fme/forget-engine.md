@@ -108,15 +108,15 @@ pub struct ExternalMutation {
 ### 5.2 外部（saga）
 
 ```text
-- 远端 vector index（Qdrant collection）
-- 远端 object store（S3 bucket）
-- 跨节点 audit sink（Kafka audit topic）
-- 接收方缓存通知（已 redeem 过的 ContextGrant 持有方）
-- 远端审计归档（S3 / OpenTelemetry collector）
-- HandoffPacket 接收方：写审计 inform.handoff_revocation_needed（不可强制远端删除，需对端配合）
+- 远端 vector index（Qdrant collection）              [Enforceable]
+- 远端 object store（S3 bucket）                      [Enforceable]
+- 跨节点 audit sink（Kafka audit topic）              [Enforceable]
+- 远端审计归档（S3 / OpenTelemetry collector）         [Enforceable]
+- 接收方缓存通知（已 redeem 过的 ContextGrant 持有方）  [Advisory]
+- HandoffPacket 接收方：通知撤销建议                   [Advisory]
 ```
 
-每条外部 mutation 进 mutation_ledger，由 reconciler 重试到 SUCCESS 或 NEEDS_INTERVENTION。
+每条外部 mutation 进 mutation_ledger，由 reconciler 重试至 SUCCESS / ADVISORY_DELIVERED 或 NEEDS_INTERVENTION。`Advisory` 标记的 mutation 通知送达即结案，详见 [outbox-reconciliation.md §13.1](./outbox-reconciliation.md)。
 
 ## 6. ForgetRequest 选项
 
@@ -139,8 +139,11 @@ message ForgetInput {
 | 默认（异步） | 立刻返回 COMMITTED_LOCALLY |
 | `wait_for_reconciled = true` | 阻塞至 GLOBALLY_RECONCILED 或超时 |
 | `callback_url` | 异步达成时回调 |
+| 等待中取消 | 阶段一已签 `local_signature`，receipt 含 `cancelled_after_local_commit = true`；ledger 中的 mutation 仍由 reconciler 异步达成；阶段二完成时仍签 `reconciled_signature` |
 
 ## 7. ForgetReceipt（双状态）
+
+权威 schema 与双签名规则见 [signing-canonical.md §3](./signing-canonical.md)。本节摘要：
 
 ```proto
 enum ForgetReceiptStatus {
@@ -149,29 +152,17 @@ enum ForgetReceiptStatus {
   RECONCILE_FAILED = 2;
 }
 
-message ForgetReceipt {
-  string receipt_id = 1;
-  string request_id = 2;
-  ForgetMode mode = 3;
-  ForgetReceiptStatus status = 4;
-
-  google.protobuf.Timestamp committed_locally_at = 5;
-  repeated string locally_committed_mutations = 6;
-  bytes local_signature = 7;
-
-  optional google.protobuf.Timestamp globally_reconciled_at = 8;
-  repeated SystemReconcileEvidence external_evidence = 9;
-  optional bytes reconciled_signature = 10;
-
-  repeated string pending_external_systems = 11;
-  optional google.protobuf.Timestamp reconciliation_deadline = 12;
-
-  optional string intervention_reason = 13;
-  repeated FailedMutation failed_mutations = 14;
-}
+// 完整字段见 signing-canonical.md §3.1
+// 双签名：
+//   local_signature        阶段一签发，覆盖 (receipt_id, mode, target_ids[],
+//                                          cascaded_ids[], locally_committed_mutations[],
+//                                          committed_locally_at_micros, ...)
+//   reconciled_signature   阶段二签发，覆盖 (receipt_id, GLOBALLY_RECONCILED,
+//                                           globally_reconciled_at_micros,
+//                                           external_evidence[], failed_mutations[])
 ```
 
-详见 [outbox-reconciliation.md](./outbox-reconciliation.md)。
+详见 [outbox-reconciliation.md §5](./outbox-reconciliation.md)。
 
 ## 8. SBU 强制遗忘
 

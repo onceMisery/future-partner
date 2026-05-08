@@ -1,6 +1,6 @@
 # 13 - 存储设计
 
-> 数据模型见 [05-data-model.md](./05-data-model.md)；部署形态选择见 [14-deployment-profiles.md](./14-deployment-profiles.md)。
+> 数据模型见 [05-data-model.md](./05-data-model.md)；签名对象的 canonical 字段顺序见 [signing-canonical.md](./signing-canonical.md)；chain_state 并发模型见 [chain-state-concurrency.md](./chain-state-concurrency.md)；部署形态选择见 [14-deployment-profiles.md](./14-deployment-profiles.md)。
 
 ## 1. 存储分层
 
@@ -40,17 +40,18 @@ Tag 共现          edge table + CSR mmap 快照
 CREATE TABLE memory_unit (
   memory_id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL,
-  namespace TEXT NOT NULL,
-  layer TEXT NOT NULL,                   -- L0 | L1 | L2 | L3
-  visibility TEXT NOT NULL,
+  namespace TEXT NOT NULL,                   -- 与 TenantKernel 注入过滤一致
+  layer TEXT NOT NULL,                       -- L0 | L1 | L2 | L3
+  visibility TEXT NOT NULL,                  -- private | project | team | org | foreign
   owner_subject_did TEXT,
   owner_agent_did TEXT,
-  content_ref TEXT,                      -- inline 或 object_ref
+  content_ref TEXT,                          -- inline 或 object_ref
   content_hash BLOB NOT NULL,
-  embedding_model TEXT NOT NULL,
+  embedding_signature TEXT NOT NULL,         -- model_id|dim|version，详见 09-plugin-runtime
   index_version TEXT NOT NULL,
   revision INTEGER NOT NULL,
   retention_policy TEXT,
+  retention_tier TEXT,                       -- 默认 NULL；protected = L2 长期保留（取代旧 CoreMemory 概念）
   source_confidence REAL,
   stability REAL,
   reusability REAL,
@@ -58,9 +59,15 @@ CREATE TABLE memory_unit (
   updated_at INTEGER NOT NULL,
   deleted_at INTEGER
 );
-CREATE INDEX idx_memory_tenant_layer ON memory_unit(tenant_id, layer);
-CREATE INDEX idx_memory_namespace ON memory_unit(tenant_id, namespace);
+CREATE INDEX idx_memory_tenant_layer ON memory_unit(tenant_id, namespace, layer);
+CREATE INDEX idx_memory_visibility ON memory_unit(tenant_id, namespace, visibility);
+CREATE INDEX idx_memory_retention_tier ON memory_unit(tenant_id, namespace, retention_tier) WHERE retention_tier IS NOT NULL;
 CREATE INDEX idx_memory_deleted ON memory_unit(tenant_id, namespace, deleted_at);
+
+-- tags / entities / lineage_parent_ids 不内嵌于 memory_unit，走以下关联表：
+--   memory_tag        ↔ tag
+--   memory_entity     ↔ entity（V1 仅占位，详见 05-data-model）
+--   memory_lineage    ↔ memory_unit（自关联）
 
 CREATE TABLE memory_unit_security (
   memory_id TEXT NOT NULL,
@@ -210,12 +217,12 @@ CREATE TABLE audit_event (
   fap_receipt_id TEXT NOT NULL,
   fap_invocation_id TEXT NOT NULL,
   fap_envelope_hash BLOB NOT NULL,
-  fap_finality TEXT NOT NULL,
+  fap_finality TEXT NOT NULL,                -- OPTIMISTIC | VERIFIED | FINALIZED
   capability_triple_json TEXT NOT NULL,
   content_hash BLOB,
   object_ref_hashes_json TEXT,
   index_version TEXT,
-  timestamp INTEGER NOT NULL,
+  timestamp INTEGER NOT NULL,                -- Unix 微秒，与 signing-canonical 一致
   signature TEXT NOT NULL
 );
 CREATE INDEX idx_audit_tenant_time ON audit_event(tenant_id, namespace, timestamp);
@@ -226,10 +233,12 @@ CREATE TABLE chain_state (
   tenant_id TEXT NOT NULL,
   namespace TEXT NOT NULL,
   current_tip BLOB NOT NULL,
+  revision INTEGER NOT NULL,                 -- 单调递增，CAS 比较的 base
   last_verified_at INTEGER,
   last_verified_event TEXT,
   PRIMARY KEY (tenant_id, namespace)
 );
+-- 并发更新规则、SchemaPerTenant / DbPerTenant 下的全局注册中心见 chain-state-concurrency.md
 
 CREATE TABLE dream_proposal (
   proposal_id TEXT PRIMARY KEY,
@@ -251,41 +260,69 @@ CREATE INDEX idx_dream_status ON dream_proposal(tenant_id, status);
 CREATE TABLE forget_receipt (
   receipt_id TEXT PRIMARY KEY,
   request_id TEXT UNIQUE NOT NULL,
-  mode TEXT NOT NULL,                    -- soft | hard
-  status TEXT NOT NULL,                  -- COMMITTED_LOCALLY | GLOBALLY_RECONCILED | RECONCILE_FAILED
+  mode TEXT NOT NULL,                          -- SOFT | HARD
+  status TEXT NOT NULL,                        -- COMMITTED_LOCALLY | GLOBALLY_RECONCILED | RECONCILE_FAILED
+
+  -- 阶段一
+  committed_locally_at INTEGER NOT NULL,
+  locally_committed_mutations_json TEXT NOT NULL,
   target_ids_json TEXT NOT NULL,
   cascaded_ids_json TEXT NOT NULL,
-  local_mutations_json TEXT NOT NULL,
-  external_mutations_json TEXT NOT NULL,
-  pending_external_systems_json TEXT,
-  mutation_ledger_id TEXT,
-  local_committed_at INTEGER NOT NULL,
+  local_signature TEXT NOT NULL,
+
+  -- 阶段二（GLOBALLY_RECONCILED 时填）
   globally_reconciled_at INTEGER,
+  external_evidence_json TEXT,
+  reconciled_signature TEXT,
+
+  -- 进行中
+  pending_external_systems_json TEXT,
   reconciliation_deadline INTEGER,
+
+  -- 失败（RECONCILE_FAILED 时填）
+  intervention_reason TEXT,
+  failed_mutations_json TEXT,
+
+  -- 关联
+  mutation_ledger_id TEXT,
   audit_event_id TEXT NOT NULL,
   fap_receipt_id TEXT NOT NULL,
-  signature TEXT NOT NULL
+
+  -- 取消语义
+  cancelled_after_local_commit INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX idx_forget_receipt_status ON forget_receipt(status, reconciliation_deadline);
 
 CREATE TABLE mutation_ledger (
   ledger_id TEXT PRIMARY KEY,
-  operation TEXT NOT NULL,               -- forget | rebuild | external_audit_fanout
-  receipt_id TEXT,
-  tenant_id TEXT NOT NULL,
+  request_id TEXT NOT NULL,                    -- ForgetRequest 幂等键
+  receipt_id TEXT,                             -- ForgetReceipt（dream/admin 类可空）
+  tenant_id TEXT NOT NULL,                     -- 租户隔离
   namespace TEXT NOT NULL,
-  local_tx_id TEXT NOT NULL,
-  external_system TEXT NOT NULL,
-  mutation_key TEXT NOT NULL,
-  idempotency_key TEXT NOT NULL,
-  status TEXT NOT NULL,                  -- PENDING | APPLIED | FAILED | NEEDS_INTERVENTION
-  attempt_count INTEGER NOT NULL DEFAULT 0,
+  mutation_kind TEXT NOT NULL,                 -- forget.vector_delete | forget.s3_delete | forget.kafka_emit
+                                               -- forget.context_grant_revoke | forget.handoff_advisory
+                                               -- dream.* | admin.*
+  target_system TEXT NOT NULL,                 -- qdrant_prod | s3_us_east | kafka_audit | did:web:agent-b ...
+  payload_json TEXT NOT NULL,                  -- 幂等执行参数
+  idempotency_key TEXT NOT NULL,               -- 外部系统幂等键
+  status TEXT NOT NULL,                        -- PENDING | IN_FLIGHT | SUCCESS | FAILED
+                                               -- NEEDS_INTERVENTION | ADVISORY_DELIVERED
+  attempts INTEGER NOT NULL DEFAULT 0,
   last_error TEXT,
+  scheduled_at INTEGER NOT NULL,
+  started_at INTEGER,
+  completed_at INTEGER,
   next_retry_at INTEGER,
+  signature TEXT NOT NULL,                     -- mutation 描述的本地签名（防 tampering）
+  shard_key INTEGER NOT NULL,                  -- (tenant_id, mutation_kind) → shard，用于 reconciler 分片
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
-  UNIQUE (external_system, idempotency_key)
+  UNIQUE (target_system, idempotency_key)
 );
 CREATE INDEX idx_mutation_ledger_status ON mutation_ledger(status, next_retry_at);
+CREATE INDEX idx_mutation_ledger_receipt ON mutation_ledger(receipt_id);
+CREATE INDEX idx_mutation_ledger_shard ON mutation_ledger(shard_key, status);
+CREATE INDEX idx_mutation_ledger_tenant ON mutation_ledger(tenant_id, namespace);
 
 CREATE TABLE replay_cache (
   message_id TEXT PRIMARY KEY,

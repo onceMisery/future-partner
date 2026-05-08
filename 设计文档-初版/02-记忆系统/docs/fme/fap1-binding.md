@@ -129,39 +129,23 @@ message Constraint {
 
 ## 5. Capability 三元组裁决
 
-PolicyKernel 用规范化的三元组精确匹配，不使用字符串 `contains`：
+PolicyKernel 用规范化的三元组精确匹配，不使用字符串 `contains`。`MemoryCapability / MemoryLayer / MemoryAction` 的权威 enum 与字符串映射见 [purpose-vocabulary.md §3](./purpose-vocabulary.md) 与 [signing-canonical.md §8/§10](./signing-canonical.md)：
 
 ```rust
 pub struct CapabilityTriple {
-    pub capability: MemoryCapability,    // enum
-    pub layer: MemoryLayer,              // L0 | L1 | L2 | L3 | MEMORY_LAYER_UNSPECIFIED
-    pub action: ActionKind,              // READ | WRITE | DELETE_SOFT | DELETE_HARD | APPROVE | ADMIN
-}
-
-pub enum MemoryCapability {
-    Retrieve,
-    Store,
-    Share,
-    HandoffCreate,
-    HandoffReceive,
-    ForgetSoft,
-    ForgetHard,
-    AuditQuery,
-    DreamPropose,
-    DreamApprove,
-    AdminRebuild,
-}
-
-pub enum ActionKind {
-    Read, Write, DeleteSoft, DeleteHard, Approve, Admin,
+    pub capability: MemoryCapability,    // enum，9 值
+    pub layer: MemoryLayer,              // enum，6 值（含 UNSPECIFIED / AUDIT_CHAIN）
+    pub action: MemoryAction,            // enum，13 值（含 UNSPECIFIED）
 }
 ```
+
+完整枚举值见 [purpose-vocabulary.md §3](./purpose-vocabulary.md)。FAP-ME 内禁止再定义 6 值版 `ActionKind` 或其它简化枚举。
 
 PolicyKernel 决策：
 
 ```text
 请求 op 解析为 CapabilityTriple
-mandate.capabilities 校验 capability_id
+mandate.capabilities 校验 capability_id（见 §9）
 mandate.constraints[type="memory.allowed_triples"] 解析为 Set<CapabilityTriple>
 精确匹配：requested_triple ∈ allowed_triples → 通过
 任何字符串前缀 / 子串 / 通配符匹配 → 拒绝
@@ -171,45 +155,37 @@ mandate.constraints[type="memory.allowed_triples"] 解析为 Set<CapabilityTripl
 
 ## 6. Receipt-AuditEvent 强绑定
 
-每个 InvokeRequest 走完整 FAP-1 链路生成 Receipt；FME 在 AuditEvent 中反向引用：
+每个 InvokeRequest 走完整 FAP-1 链路生成 Receipt；FME 在 AuditEvent 中反向引用。`AuditEvent` 的 canonical 字段顺序、`event_hash` 输入字段、`signature` 规则在 [signing-canonical.md §2](./signing-canonical.md) 集中冻结。本节摘要：
 
 ```proto
 message AuditEvent {
   string event_id = 1;
-  bytes prev_event_hash = 2;
-  bytes event_hash = 3;
+  bytes  prev_event_hash = 2;
+  bytes  event_hash = 3;
   string tenant_id = 4;
-  string session_id = 5;
-  string actor_did = 6;
-  string operation = 7;            // memory.retrieve / store / ...
-  string target_ref = 8;
-  string mandate_id = 9;
+  string namespace = 5;
+  string session_id = 6;
+  string actor_did = 7;
+  string operation = 8;            // 见 §9 capability_id 集合
+  string target_ref = 9;
+  string mandate_id = 10;
 
-  // 新增：FAP-1 反向绑定（修复 P1-1）
-  string fap_receipt_id = 10;
-  string fap_invocation_id = 11;
-  bytes  fap_envelope_hash = 12;
-  string fap_finality = 13;        // OPTIMISTIC | VERIFIED | FINALIZED
+  // FAP-1 反向绑定
+  string fap_receipt_id = 11;
+  string fap_invocation_id = 12;   // == FAP-1 Envelope.message_id
+  bytes  fap_envelope_hash = 13;
+  string fap_finality = 14;        // OPTIMISTIC | VERIFIED | FINALIZED
 
-  bytes content_hash = 14;
-  string index_version = 15;
-  google.protobuf.Timestamp timestamp = 16;
-  bytes signature = 17;
+  bytes  capability_triple = 15;
+  bytes  content_hash = 16;
+  bytes  object_ref_hashes = 17;
+  string index_version = 18;
+  int64  timestamp_micros = 19;
+  bytes  signature = 20;           // AuditKernel 签名 event_hash
 }
 ```
 
-`event_hash` 计算公式：
-
-```text
-event_hash = SHA256(
-  prev_event_hash ||
-  tenant_id || session_id ||
-  actor_did || operation || target_ref ||
-  mandate_id ||
-  fap_receipt_id || fap_envelope_hash || fap_finality ||
-  content_hash || timestamp
-)
-```
+`fap_finality` 词汇仅 FAP-1 标准三档（`OPTIMISTIC | VERIFIED | FINALIZED`），不允许 `PROVISIONAL`。
 
 实现保证：
 

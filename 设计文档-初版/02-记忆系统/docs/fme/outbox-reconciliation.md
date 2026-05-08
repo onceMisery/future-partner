@@ -1,6 +1,6 @@
 # outbox-reconciliation.md
 
-> HardForget 与跨系统记忆 mutation 的最终一致性方案。基于 transactional outbox + saga + reconciliation。
+> HardForget 与跨系统记忆 mutation 的最终一致性方案。基于 transactional outbox + saga + reconciliation。`ForgetReceipt` / `mutation_ledger` 的权威 schema 见 [signing-canonical.md](./signing-canonical.md) 与 [13-storage-design.md](./13-storage-design.md)。
 
 ## 1. 设计原则
 
@@ -79,28 +79,33 @@ SQL 事务边界：
 
 ## 4. mutation_ledger 表
 
-```sql
-CREATE TABLE mutation_ledger (
-  ledger_id TEXT PRIMARY KEY,
-  request_id TEXT NOT NULL,                  -- ForgetRequest 幂等键
-  receipt_id TEXT NOT NULL,                  -- ForgetReceipt
-  mutation_kind TEXT NOT NULL,               -- vector_delete | s3_delete | kafka_emit | ...
-  target_system TEXT NOT NULL,               -- qdrant_prod | s3_us_east | kafka_audit | ...
-  payload_json TEXT NOT NULL,                -- 幂等执行所需参数
-  status TEXT NOT NULL,                      -- PENDING | IN_FLIGHT | SUCCESS | FAILED | NEEDS_INTERVENTION
-  attempts INTEGER NOT NULL DEFAULT 0,
-  last_error TEXT,
-  scheduled_at INTEGER NOT NULL,
-  started_at INTEGER,
-  completed_at INTEGER,
-  next_retry_at INTEGER,
-  signature TEXT NOT NULL                    -- mutation 描述的本地签名（防 tampering）
-);
-CREATE INDEX idx_mutation_ledger_status ON mutation_ledger(status, next_retry_at);
-CREATE INDEX idx_mutation_ledger_receipt ON mutation_ledger(receipt_id);
+权威 DDL 见 [13-storage-design.md §3](./13-storage-design.md)。要点：
+
+```text
+- 主键 ledger_id；UNIQUE(target_system, idempotency_key) 保证跨重试幂等
+- tenant_id / namespace 列：reconciler 按租户分片
+- mutation_kind 命名空间：forget.* | dream.* | admin.*
+- shard_key：(tenant_id, mutation_kind) → shard_id，用于 reconciler 多 worker 分片
+- status：PENDING | IN_FLIGHT | SUCCESS | FAILED | NEEDS_INTERVENTION | ADVISORY_DELIVERED
+- attempts / next_retry_at / last_error：指数退避状态
+- signature：mutation 描述本地签名（防 reconciler 写入路径篡改）
 ```
 
+`status` 状态转移：
+
+```text
+PENDING ──fetch──▶ IN_FLIGHT
+IN_FLIGHT ──ok──▶ SUCCESS
+IN_FLIGHT ──retriable err──▶ PENDING (attempts++, next_retry_at)
+IN_FLIGHT ──permanent err──▶ NEEDS_INTERVENTION
+IN_FLIGHT ──notify-only target ack──▶ ADVISORY_DELIVERED   [P1-5]
+```
+
+`ADVISORY_DELIVERED` 用于不可强制 mutation 的目标系统（如远端 ContextGrant 接收方）：通知已送达即结案，不进 NEEDS_INTERVENTION 告警队列。详见 §13.1。
+
 ## 5. ForgetReceipt 双状态 schema
+
+权威 schema 与双签名规则见 [signing-canonical.md §3](./signing-canonical.md)。本节摘要：
 
 ```proto
 enum ForgetReceiptStatus {
@@ -109,42 +114,35 @@ enum ForgetReceiptStatus {
   RECONCILE_FAILED = 2;        // 阶段二永久失败（NEEDS_INTERVENTION）
 }
 
-message ForgetReceipt {
-  string receipt_id = 1;
-  string request_id = 2;
-  ForgetMode mode = 3;
-  ForgetReceiptStatus status = 4;
+// 完整字段见 signing-canonical.md §3.1：
+//   receipt_id / request_id / mode / status
+//   committed_locally_at_micros / locally_committed_mutations[] /
+//     target_ids[] / cascaded_ids[] / local_signature
+//   globally_reconciled_at_micros? / external_evidence[] / reconciled_signature?
+//   pending_external_systems[] / reconciliation_deadline_micros
+//   intervention_reason? / failed_mutations[]
+//   mutation_ledger_id / audit_event_id / fap_receipt_id
+//   cancelled_after_local_commit
+```
 
-  // 阶段一信息（必填）
-  google.protobuf.Timestamp committed_locally_at = 5;
-  repeated string locally_committed_mutations = 6;
-  bytes local_signature = 7;
+阶段一签名 `local_signature` 在 status = `COMMITTED_LOCALLY` 时立刻生成；
+阶段二签名 `reconciled_signature` 在 status = `GLOBALLY_RECONCILED` 时由 reconciler 追加签发；
+两段签名各自覆盖独立的 canonical payload，详见 [signing-canonical.md §3.2](./signing-canonical.md)。
 
-  // 阶段二信息（reconciled 时填）
-  optional google.protobuf.Timestamp globally_reconciled_at = 8;
-  repeated SystemReconcileEvidence external_evidence = 9;
-  optional bytes reconciled_signature = 10;
+## 5.1 SystemReconcileEvidence / FailedMutation
 
-  // 进行中信息
-  repeated string pending_external_systems = 11;
-  optional google.protobuf.Timestamp reconciliation_deadline = 12;
-
-  // 失败时
-  optional string intervention_reason = 13;
-  repeated FailedMutation failed_mutations = 14;
-}
-
+```proto
 message SystemReconcileEvidence {
-  string system = 1;             // qdrant_prod / s3_us_east / kafka_audit
-  string evidence_token = 2;     // 外部系统返回的删除凭证（如 S3 delete marker）
-  google.protobuf.Timestamp at = 3;
+  string system          = 1;         // qdrant_prod / s3_us_east / kafka_audit
+  string evidence_token  = 2;         // 外部系统返回的删除凭证（如 S3 delete marker）
+  int64  at_micros       = 3;
 }
 
 message FailedMutation {
-  string ledger_id = 1;
-  string target_system = 2;
-  string last_error = 3;
-  uint32 attempts = 4;
+  string ledger_id       = 1;
+  string target_system   = 2;
+  string last_error      = 3;
+  uint32 attempts        = 4;
 }
 ```
 
@@ -253,11 +251,15 @@ FAP-1 InvokeRequest 在 FINALIZED 模式下：
 
 ## 11. Reconciler 实现
 
+### 11.1 Trait
+
 ```rust
 pub struct ForgetReconciler {
     ledger: Arc<dyn MutationLedgerStore>,
     executors: HashMap<MutationKind, Box<dyn MutationExecutor>>,
     audit_kernel: Arc<AuditKernel>,
+    leader: Arc<dyn LeaderElection>,            // §11.2
+    shard_assignment: ShardAssignment,           // §11.3
 }
 
 #[async_trait]
@@ -265,12 +267,79 @@ pub trait MutationExecutor: Send + Sync {
     async fn execute(&self, mutation: &PendingMutation) -> Result<ReconcileEvidence>;
     fn kind(&self) -> MutationKind;
     fn is_idempotent(&self) -> bool;        // 必须为 true
+    fn delivery_semantics(&self) -> DeliverySemantics;
 }
 
+pub enum DeliverySemantics {
+    /// 可强制：失败转 NEEDS_INTERVENTION
+    Enforceable,
+    /// 不可强制：送达即结案，转 ADVISORY_DELIVERED
+    Advisory,
+}
+```
+
+`Advisory` 适用于受控边界外的目标（远端 Agent / 外部 API），详见 §13.1。
+
+### 11.2 Leader 选举
+
+多 gateway 实例并发跑 reconciler 时必须避免对同一 ledger 行重复调用执行器。允许的实现：
+
+| 后端 | 机制 |
+|---|---|
+| PostgreSQL | `pg_try_advisory_lock(shard_id)` 持锁的实例为该 shard 的 leader |
+| Etcd / Consul | `lease + key prefix /fap-me/reconciler/leader/{shard_id}` |
+| Redis | `SET NX PX` + 续约（仅在 PG 不可用时降级使用） |
+| 单机 / Edge Lite | 进程内单 leader（无需外部协调） |
+
+leader 失联（lease 失效）后由其他实例接管。已 `IN_FLIGHT` 的 mutation 由超时回收（§11.4）处理。
+
+### 11.3 分片
+
+`mutation_ledger.shard_key` = `hash((tenant_id, mutation_kind)) mod NUM_SHARDS`，默认 `NUM_SHARDS = 32`。
+
+```text
+worker_i 处理 shard_key ∈ assigned_shards(worker_i)
+分片分配通过 leader 协调：
+  - 静态：按 worker_id 取模（适合稳定实例数）
+  - 动态：leader 根据健康度重新分配（适合自动伸缩）
+```
+
+工程上保证：
+
+```text
+1. 同一 ledger 行同一时刻只有一个 worker 在 IN_FLIGHT
+2. shard 重新分配时，旧 owner 必须先把所有 IN_FLIGHT 标回 PENDING
+3. UNIQUE(target_system, idempotency_key) 兜底：即便 leader 切换瞬间双发，外部系统也只生效一次
+```
+
+### 11.4 超时回收
+
+`IN_FLIGHT` 状态超过 `IN_FLIGHT_TIMEOUT`（默认 5 分钟）的 mutation 由 reconciler 自动回收：
+
+```text
+SELECT * FROM mutation_ledger
+ WHERE status = 'IN_FLIGHT' AND started_at < now() - 300s
+   AND shard_key ∈ my_shards
+FOR UPDATE SKIP LOCKED
+  → 标回 PENDING，attempts++
+  → 若 attempts > MAX_ATTEMPTS：转 NEEDS_INTERVENTION
+```
+
+worker 崩溃后无人续期 → 5 分钟内自动回收并重派。
+
+### 11.5 主循环
+
+```rust
 impl ForgetReconciler {
     pub async fn run_loop(&self) {
         loop {
-            let pending = self.ledger.fetch_due(MAX_BATCH).await?;
+            if !self.leader.am_leader_for_any_shard().await? {
+                tokio::time::sleep(LEADER_POLL).await;
+                continue;
+            }
+            let shards = self.leader.my_shards().await?;
+            self.reclaim_orphaned(&shards).await?;
+            let pending = self.ledger.fetch_due(&shards, MAX_BATCH).await?;
             for m in pending {
                 self.try_execute(m).await;
             }
@@ -283,10 +352,16 @@ impl ForgetReconciler {
         let executor = self.executors.get(&m.mutation_kind)
             .expect("missing executor");
         match executor.execute(&m).await {
-            Ok(evidence) => {
-                self.ledger.set_success(m.ledger_id, evidence).await?;
-                self.maybe_finalize_receipt(m.receipt_id).await?;
-            }
+            Ok(evidence) => match executor.delivery_semantics() {
+                DeliverySemantics::Enforceable => {
+                    self.ledger.set_success(m.ledger_id, evidence).await?;
+                    self.maybe_finalize_receipt(m.receipt_id).await?;
+                }
+                DeliverySemantics::Advisory => {
+                    self.ledger.set_advisory_delivered(m.ledger_id, evidence).await?;
+                    self.maybe_finalize_receipt(m.receipt_id).await?;
+                }
+            },
             Err(e) if e.is_retriable() => {
                 self.ledger.bump_attempts(m.ledger_id, &e).await?;
             }
@@ -298,12 +373,11 @@ impl ForgetReconciler {
     }
 
     async fn maybe_finalize_receipt(&self, receipt_id: ReceiptId) -> Result<()> {
-        if self.ledger.all_success(receipt_id).await? {
-            // 所有 mutation 成功 → 签发第二阶段 Receipt
+        // 所有 mutation 状态 ∈ {SUCCESS, ADVISORY_DELIVERED} 时进入阶段二
+        if self.ledger.all_terminal(receipt_id).await? {
             let evidence = self.ledger.gather_evidence(receipt_id).await?;
             let receipt = self.sign_reconciled_receipt(receipt_id, evidence)?;
             self.audit_kernel.append(reconciled_event(receipt)).await?;
-            // 通知订阅者
             self.notify_subscribers(receipt).await?;
         }
         Ok(())
@@ -342,6 +416,35 @@ context_grant 跨租户撤销通知接收方
 ```
 
 `mutation_ledger` 统一管理所有需要最终一致的 mutation。
+
+### 13.1 ADVISORY_DELIVERED：不可强制 mutation 的边界
+
+`mutation_ledger.status = ADVISORY_DELIVERED` 用于受控边界外的目标系统：
+
+```text
+适用场景：
+  forget.context_grant_revoke      远端 Agent / 已 redeem 的接收方
+  forget.handoff_advisory          已分发 HandoffPacket 的接收方
+  audit.fan_out_advisory           不在合规归档范围的可选 sink
+
+行为：
+  executor 把通知送达对端（API call / event publish）并收到 ack
+  → status = ADVISORY_DELIVERED
+  → 不再重试
+  → 不进 NEEDS_INTERVENTION 告警队列
+  → 进入 receipt 阶段二的 external_evidence[]，但 evidence_token 标 "advisory"
+
+请求方理解：
+  ADVISORY_DELIVERED 表示通知送达，不表示对端真删
+  对端是否真删由对端审计承担
+  源侧诚实声明撤销已通知，不声称数据自动消失（与 12-context-sharing §1 一致）
+
+转 NEEDS_INTERVENTION 的边界：
+  通知送达失败（无法到达对端）→ 重试 → 永久失败 → NEEDS_INTERVENTION（注意：是"通知送达"失败）
+  对端拒绝 ack（语义错误）→ 直接 NEEDS_INTERVENTION
+```
+
+ADVISORY 状态与 SUCCESS 状态在 receipt 终结判定中等价（都属于 terminal），合规 SLA 仅以"送达"为衡量。
 
 ## 14. 合规含义
 

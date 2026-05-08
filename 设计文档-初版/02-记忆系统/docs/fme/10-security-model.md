@@ -71,7 +71,7 @@ FME 约束示例：
   "capabilities": [
     "memory.retrieve",
     "memory.store",
-    "memory.handoff"
+    "memory.handoff.create"
   ],
   "constraints": [
     {"type": "memory.purpose", "value": "project_debugging"},
@@ -90,6 +90,8 @@ FME 约束示例：
   "issuer_signature": "JWS..."
 }
 ```
+
+`capabilities[]` 中的字符串必须逐字取 [signing-canonical.md §9](./signing-canonical.md) 列出的 12 项之一；`memory.handoff` / `memory.forget` 等单串形式禁止使用。
 
 约束解释：
 

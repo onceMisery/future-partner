@@ -1,6 +1,6 @@
 # 05 - 数据模型
 
-> 表结构详见 [13-storage-design.md](./13-storage-design.md)；Protobuf 定义详见 [15-fap1-integration.md](./15-fap1-integration.md)。
+> 表结构详见 [13-storage-design.md](./13-storage-design.md)；签名对象的 canonical 字段顺序与 hash/签名规则详见 [signing-canonical.md](./signing-canonical.md)；Protobuf 定义详见 [15-fap1-integration.md](./15-fap1-integration.md)。
 
 ## 1. MemoryUnit — 记忆基本单元
 
@@ -15,20 +15,33 @@ MemoryUnit
 ├── owner_agent_did        Agent DID（产生者）
 ├── content_ref            内容引用（短内容内嵌；长内容指向 ObjectStore）
 ├── content_hash           SHA256（用于审计与去重）
-├── tags[]                 关联 Tag 列表
-├── entities[]             命名实体（用于实体融合）
+├── tags[]                 关联 Tag 列表（关联表 memory_tag）
+├── entities[]             命名实体（关联表 memory_entity，V1 仅占位）
 ├── security_labels[]      ["sbu", "secret", "pii", "internal", ...]
-├── embedding_model        embedding 模型 ID（用于跨版本路由）
+├── embedding_signature    "model_id|dim|version" 三元组（详见 09-plugin-runtime EmbeddingProvider）
 ├── index_version          所在索引版本
 ├── revision               版本号（乐观锁）
-├── lineage_parent_ids[]   上游来源（L1→L0、L2→L1）
+├── lineage_parent_ids[]   上游来源（关联表 memory_lineage：L1→L0、L2→L1）
 ├── retention_policy       保留策略 ID
+├── retention_tier         protected | standard | NULL（取代旧 CoreMemory 概念）
 ├── source_confidence      来源可信度 ∈ [0,1]
 ├── stability              稳定性 ∈ [0,1]（用于 L2 写入门槛）
 ├── reusability            可复用性 ∈ [0,1]
 ├── created_at
 ├── updated_at
 └── deleted_at             tombstone 时间戳（软删除）
+```
+
+字段持久化方式：
+
+```text
+inline                     上述字段除 tags / entities / lineage_parent_ids / security_labels 外，
+                           直接持久化在 memory_unit 表（详见 13-storage-design）
+
+关联表                      tags         → memory_tag
+                           entities     → memory_entity（V1 占位）
+                           lineage      → memory_lineage
+                           security     → memory_unit_security
 ```
 
 ## 2. Tag — 标签
@@ -192,35 +205,27 @@ AuditEvent
 ├── prev_event_hash        哈希链前向引用
 ├── event_hash             本事件哈希
 ├── tenant_id
+├── namespace
 ├── session_id
 ├── actor_did              操作者 DID
-├── operation              memory.retrieve / memory.store / ...
+├── operation              memory.retrieve / memory.store / memory.share
+│                          memory.handoff.create / memory.handoff.receive
+│                          memory.forget.soft / memory.forget.hard / ...
 ├── target_ref             被操作的 memory_id 或 grant_id
 ├── mandate_id
 ├── fap_receipt_id
-├── fap_invocation_id
+├── fap_invocation_id      == FAP-1 Envelope.message_id
 ├── fap_envelope_hash
-├── fap_finality
+├── fap_finality           OPTIMISTIC | VERIFIED | FINALIZED
 ├── capability_triple
 ├── content_hash
 ├── object_ref_hashes[]
 ├── index_version
-├── timestamp
+├── timestamp_micros       Unix 微秒
 └── signature
 ```
 
-哈希构造：
-
-```text
-event_hash = SHA256(
-  prev_event_hash || tenant_id || namespace || session_id ||
-  actor_did || operation || target_ref ||
-  mandate_id || fap_receipt_id || fap_invocation_id ||
-  fap_envelope_hash || fap_finality ||
-  canonical(capability_triple) ||
-  content_hash || canonical(object_ref_hashes) || timestamp
-)
-```
+`event_hash` 输入字段顺序与 canonical 编码规则在 [signing-canonical.md §2](./signing-canonical.md) 冻结，本文档不重复定义；任何实现按本文示例的字段顺序拼接 hash 都将失败。
 
 详见 [11-audit-and-receipt.md](./11-audit-and-receipt.md)。
 
@@ -265,20 +270,30 @@ DreamProposal
 ForgetReceipt
 ├── receipt_id
 ├── request_id
-├── mode                   soft | hard
-├── status                 COMMITTED_LOCALLY | GLOBALLY_RECONCILED |
-│                          RECONCILE_FAILED
-├── target_ids[]
-├── cascaded_ids[]         级联清除的下游
-├── local_mutations[]      SQLite/PG + 本地索引 + 本地 CAS
-├── external_mutations[]   S3/Kafka/Qdrant/远端 sink
-├── pending_external_systems[]
-├── mutation_ledger_id
-├── audit_event_id
-├── fap_receipt_id
-├── local_committed_at
-├── globally_reconciled_at?
-└── signature
+├── mode                       SOFT | HARD
+├── status                     COMMITTED_LOCALLY | GLOBALLY_RECONCILED |
+│                              RECONCILE_FAILED
+├── 阶段一（必填）
+│   ├── committed_locally_at_micros
+│   ├── locally_committed_mutations[]
+│   ├── target_ids[]
+│   ├── cascaded_ids[]
+│   └── local_signature
+├── 阶段二（GLOBALLY_RECONCILED 时填）
+│   ├── globally_reconciled_at_micros
+│   ├── external_evidence[]              SystemReconcileEvidence
+│   └── reconciled_signature
+├── 进行中
+│   ├── pending_external_systems[]
+│   └── reconciliation_deadline_micros
+├── 失败（RECONCILE_FAILED 时填）
+│   ├── intervention_reason
+│   └── failed_mutations[]
+├── 关联
+│   ├── mutation_ledger_id
+│   ├── audit_event_id
+│   └── fap_receipt_id
+└── cancelled_after_local_commit         bool
 ```
 
-详见 [forget-engine.md](./forget-engine.md)。
+权威 schema、双签名（`local_signature` + `reconciled_signature`）规则见 [signing-canonical.md §3](./signing-canonical.md)；语义与流程见 [forget-engine.md](./forget-engine.md) 与 [outbox-reconciliation.md](./outbox-reconciliation.md)。

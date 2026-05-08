@@ -194,7 +194,7 @@ FME 约束必须进入 FAP-1 `Mandate.constraints`，不得放入未签名的请
 
 ```json
 {
-  "capabilities": ["memory.retrieve", "memory.store", "memory.handoff"],
+  "capabilities": ["memory.retrieve", "memory.store", "memory.handoff.create"],
   "constraints": [
     {"type": "memory.purpose", "value": "project_debugging"},
     {"type": "memory.allowed_triples", "value": [
@@ -209,6 +209,8 @@ FME 约束必须进入 FAP-1 `Mandate.constraints`，不得放入未签名的请
   ]
 }
 ```
+
+`capabilities[]` 中字符串必须逐字取 [signing-canonical.md §9](./signing-canonical.md) 列出的 12 项；`memory.handoff` / `memory.forget` 等单串形式禁止使用。
 
 详见 [fap1-binding.md](./fap1-binding.md)。
 
