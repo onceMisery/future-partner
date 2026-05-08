@@ -1,0 +1,300 @@
+# 18 - 实施路线图
+
+> 与 FAP-1 [21-roadmap.md](../../../01-协议设计/docs/fap/21-roadmap.md) 对齐：FAP-ME Phase N 在 FAP-1 Phase N 完成后启动或并行。
+
+## 1. 总览
+
+```text
+Phase 1   Kernel Contract + 协议骨架        2 周
+Phase 2   L0/L1 基础记忆闭环                 3 周
+Phase 3   Seahorse-style 认知检索增强        5 周
+Phase 4   上下文共享与 Handoff               3 周
+Phase 5   安全合规增强                       4 周
+Phase 6   DreamWorker + 后台维护 + 生产化    5 周
+                                              ─────
+                                              22 周
+```
+
+## 2. Phase 1：Kernel Contract + 协议骨架（2 周）
+
+### 交付物
+
+```text
+✅ Kernel 层完整实现
+  - PolicyKernel
+  - AuditKernel（含哈希链）
+  - TenantKernel
+  - MandateVerifier
+  - ContentSafetyGuard
+
+✅ PluginRegistry 框架
+  - 注册 / 发现 / 版本管理
+  - 多租户级配置覆盖
+  - WASM 沙箱（Wasmtime）
+
+✅ FAP-ME Protobuf 扩展
+  - StandardPurpose 枚举
+  - RedactionPolicy / RedactionReport
+  - DreamProposal 状态机
+  - HandoffPacket（含 RedactionReport）
+
+✅ Purpose 词汇表 JSON Schema
+✅ Agent Card memory 子节定义
+✅ fap-me-server 骨架（axum + tonic）
+✅ TypeScript / Python SDK 骨架
+```
+
+### 验收标准
+
+```text
+1. 任何绕过 PolicyKernel 直接访问存储的路径均无法编译
+2. 插件注册版本冲突时系统拒绝启动
+3. ContentSafetyGuard 能拦截 ≥ 10 个标准 Prompt Injection 模式
+4. Protobuf 可生成 Go / Rust / TypeScript SDK
+5. Conformance 负例 ≥ 30 个全部通过
+```
+
+## 3. Phase 2：L0/L1 基础记忆闭环（3 周）
+
+### 交付物
+
+```text
+✅ L0 RingBuffer + JSONL WAL
+✅ DefaultCompactStrategy
+  - should_fold 4 级触发逻辑
+  - retain_score 公式
+  - L0 → L1 折叠
+
+✅ L1 EpisodeStore（SQLite WAL）
+✅ EmbeddingProvider 插件
+  - openai 适配
+  - local sentence-transformers 适配
+
+✅ VectorIndex 插件
+  - HNSW (usearch)
+  - sqlite-vec（Core Lite）
+
+✅ append-only AuditSink 插件
+✅ mTLS + JWT 认证
+✅ basic + hybrid 检索模式
+```
+
+### 验收标准
+
+```text
+1. L0 折叠在以下条件正确触发：
+   - token > 4096
+   - 轮次 ≥ 10
+   - semantic_boundary_score > 0.70
+   - 静默 > 300s
+2. L1 Episode 可按 tenant / namespace 检索
+3. 每次 retrieve / store 生成带哈希链的 AuditEvent
+4. 不同 tenant 的记忆无法交叉查询
+5. Prompt Injection 内容被拦截，不进入 L0
+6. 性能：basic P99 ≤ 20ms / hybrid P99 ≤ 60ms
+```
+
+## 4. Phase 3：Seahorse-style 认知检索增强（5 周）
+
+### 交付物
+
+```text
+✅ Thalamus（Tide 算法）
+  - Gram-Schmidt 多级剥离
+  - 投影熵
+  - 引力场修正
+  - 完整数学规格
+
+✅ ColdHotTagGraph
+  - 冷热分离
+  - V7 有向序位拓扑
+  - intrinsic_residual 计算
+
+✅ LIF SpikeEngine
+  - MAX_HOPS = 2
+  - FIRING_THRESHOLD = 0.1
+  - 收敛检测
+
+✅ GeodesicReranker
+  - 复用 LIF 距离场
+  - 零额外计算
+  - alpha 热调参
+
+✅ RetrievalPipeline
+  - 降级链（tagmemo_geodesic → tagmemo → hybrid → basic）
+  - 背压
+  - 超时控制
+
+✅ 霰弹枪查询（并发上限 8 / 单次超时 100ms）
+✅ tide / tagmemo / tagmemo_geodesic / sbu_safe / dream 模式
+```
+
+### 验收标准
+
+```text
+1. tide 模式返回 TideResult（含 focus_level / layers / weak_signal_tags）
+2. tagmemo_geodesic 能正确处理多义词（金融"银行" vs 河岸"银行"）
+3. spike_pathway 在结果中可见（可解释性）
+4. 任何检索模式超时后自动降级，不返回空结果
+5. 霰弹枪并发不超过 8，候选池不超过 500
+6. tagmemo P99 ≤ 120ms / tide P99 ≤ 150ms
+```
+
+## 5. Phase 4：上下文共享与 Handoff（3 周）
+
+### 交付物
+
+```text
+✅ ContextSnapshot
+✅ ContextGrant（含签名 + revoke）
+✅ RedactionPolicy 执行引擎
+✅ RedactionReport 生成（含 JWS 签名）
+✅ HandoffPacket（含可验证脱敏报告）
+✅ PolicyKernel.verify_redaction_report
+✅ foreign_context import 策略
+```
+
+### 验收标准
+
+```text
+1. Agent A 可安全移交任务给 Agent B
+2. B 收到 HandoffPacket 后可验证脱敏报告签名
+3. SBU 内容不出现在任何跨 Agent 上下文中
+4. ContextGrant 过期后不可再访问
+5. ContextGrant 撤销后 ≤ 60s 全集群生效
+6. redaction_policy 格式符合 fap-redaction-v1 schema
+7. 审计链中包含 share / handoff / redeem 完整事件
+```
+
+## 6. Phase 5：安全合规增强（4 周）
+
+### 交付物
+
+```text
+✅ DID Resolver
+✅ VC Verifier
+✅ DPoP adapter
+✅ Intent Mandate verifier（含 purpose 词汇表校验）
+✅ SBU 强制遗忘流水线
+  - 级联清除：raw → embedding → snapshot → grant
+✅ ForgetReceipt 生成（含签名）
+✅ AuditKernel 完整性验证
+  - 周期哈希链验证（每天）
+  - 断链检测
+  - TamperingAlert 告警
+✅ chain_integrity_verify capability
+```
+
+### 验收标准
+
+```text
+1. 未授权 purpose 无法读取记忆
+2. HardForget 后 raw / embedding / snapshot / grant 全部级联清除
+3. 返回可验证 ForgetReceipt（含签名）
+4. 审计链完整性每天自动验证，断链时告警
+5. 跨组织 Agent 可用 DID/VC 建立会话
+6. mandate 撤销 ≤ 60s 全集群可见
+```
+
+## 7. Phase 6：DreamWorker + 后台维护 + 生产化（5 周）
+
+### 交付物
+
+```text
+✅ DreamWorker 插件接口
+✅ DefaultDreamWorker 实现（规则 + LLM 提案）
+✅ DreamProposal 完整状态机
+  - 7 状态 + 转移
+  - 风险分级（LOW / MEDIUM / HIGH）
+  - SBU 永久阻断
+  - 72h 超时
+✅ 审批者身份验证
+✅ Cerebellum 调度器
+  - 优先级队列
+  - 重试 / 幂等
+  - 不阻塞主路径
+✅ L3 后台任务
+  - PruneTagGraph
+  - CompactMemory
+  - HealthAnalyze
+✅ 观测
+  - Prometheus 指标
+  - OpenTelemetry trace
+✅ WASM 插件沙箱（生产化）
+  - 内存 64MB
+  - 超时 200ms
+  - 网络/文件系统禁止
+```
+
+### 验收标准
+
+```text
+1. 含 SBU 内容的 DreamProposal 自动 BLOCKED 且不可审批通过
+2. 高风险 proposal 必须人工审批，超时 72h 自动 EXPIRED
+3. 后台任务不阻塞 recall 主路径（P99 增量 ≤ 5ms）
+4. 可按 tenant 统计 recall_latency / hit_rate / dream_jobs_total
+5. WASM 插件超限（内存或时间）时被沙箱终止，不影响主进程
+6. Conformance 用例 ≥ 128 全部通过
+```
+
+## 8. Phase 间依赖
+
+```text
+Phase 1 是所有后续阶段的前提（必须先完成）
+Phase 2 依赖 Phase 1
+Phase 3 依赖 Phase 2 的 L1 + EmbeddingProvider + VectorIndex
+Phase 4 依赖 Phase 3（ContextSnapshot 与检索流水线集成）
+       并行：Phase 4 可与 Phase 5 部分并行
+Phase 5 依赖 Phase 4 的 ContextGrant 与 RedactionReport
+Phase 6 依赖前 5 个 Phase
+```
+
+## 9. 与 FAP-1 协议路线图的关系
+
+```text
+FAP-1 Phase 0   协议冻结              FAP-ME Phase 1 启动前提
+FAP-1 Phase 1   Core Lite             FAP-ME Phase 1-2 并行
+FAP-1 Phase 2   高性能 Profile        FAP-ME Phase 3 启动前提
+FAP-1 Phase 3   分布式节点            FAP-ME Phase 5 部分功能依赖
+FAP-1 Phase 4   生产化                FAP-ME Phase 6 同期
+```
+
+## 10. 不在 V1 范围
+
+```text
+EXT-潜空间记忆                  实验性
+EXT-联邦学习记忆共享            实验性
+EXT-跨节点 CRDT 记忆同步        FAP-1 EXT 范围
+EXT-多模态嵌入                  Plugin 可后续注册
+```
+
+## 11. 回滚策略
+
+详见 FAP-1 [22-rollback.md](../../../01-协议设计/docs/fap/22-rollback.md)。
+
+FAP-ME 特有回滚：
+
+```text
+embedding 模型升级失败：
+  → 双索引切换中切回 v1
+  → 不影响已有 L1 / L2
+
+CompactStrategy 升级失败：
+  → 切回上一版本，pending L0 不再折叠
+  → 后台清理任务暂停
+
+DreamWorker 升级失败：
+  → 当前进行中的 proposal 标记 REJECTED
+  → 不丢失数据
+```
+
+## 12. 关键里程碑
+
+```text
+W2    Kernel Contract 完工，conformance 负例通过
+W5    L0/L1 闭环，basic + hybrid 上线
+W10   认知检索全模式上线，TagMemo V7 + 测地线重排可用
+W13   Handoff + RedactionReport 完整链路通过
+W17   合规 + DID/VC + SBU 强制遗忘通过
+W22   DreamWorker + 完整生产化，进入 GA
+```
